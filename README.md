@@ -7,6 +7,15 @@ A Go port of the original `~/scripts/usbimport` bash script, built on a
 pluggable driver architecture so new sync sources can be added by writing one
 package and registering it in a single place.
 
+**Status**: v0.1.0 — functional, early release.
+
+## Prerequisites
+
+- Go 1.26+
+- `gio` (gvfs package) — for discovering mounted USB devices
+- `exiftool` — for geotagging images (optional, skipped if missing)
+- `supernote-tool` — for `.note`→PDF conversion (only for Supernote sync)
+
 ## Build
 
     mage            # build (default target)
@@ -14,17 +23,41 @@ package and registering it in a single place.
     mage lint       # go vet + gofmt + errcheck + golangci-lint
     mage install    # build and install to GOPATH/bin
 
+    go install .    # install to GOBIN
+
 ## Usage
 
     syncmaster [auto|fujifilm|supernote|selftest|help] [destination]
     syncmaster -version
+    syncmaster -verbose                   # print verbose progress
     syncmaster --allow-missing-gps        # import images even without GPS
     syncmaster --device fujifilm          # pick a device when multiple connected
 
-### Environment overrides
+### Examples
 
-    FUJIFILM_DEST, FUJIFILM_RAW_DEST, GPX_DIR, SUPERNOTE_DEST,
-    CONVERT_PARALLELISM, GVFS_ROOT
+    syncmaster                        # auto-detect and import connected devices
+    syncmaster fujifilm ~/Photos      # import Fujifilm photos to ~/Photos
+    syncmaster supernote              # import Supernote notes to default dest
+    syncmaster --allow-missing-gps    # skip geotag if no GPX data available
+
+### Exit codes
+
+| Code | Meaning                                    |
+|------|--------------------------------------------|
+| 0    | Success                                    |
+| 1    | Runtime error (missing tool, I/O, etc.)    |
+| 2    | Usage error (bad flag, unknown mode)       |
+
+### Environment variables
+
+| Variable              | Description                    | Default                          |
+|-----------------------|--------------------------------|----------------------------------|
+| `FUJIFILM_DEST`       | JPEG/video destination         | `~/Pictures/Fujifilm.Inbox`      |
+| `FUJIFILM_RAW_DEST`   | RAW file destination           | `~/Pictures/Fujifilm.RAW`        |
+| `GPX_DIR`             | GPX tracks for geotagging      | `~/Documents/GPX`                |
+| `SUPERNOTE_DEST`      | Supernote import destination   | `~/Documents/Inbox/Supernote`    |
+| `CONVERT_PARALLELISM` | Parallel note conversions      | `3`                              |
+| `GVFS_ROOT`           | GVFS mount root                | `/run/user/<uid>/gvfs`           |
 
 ## Architecture (pluggable drivers)
 
