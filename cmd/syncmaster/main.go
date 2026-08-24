@@ -1,66 +1,123 @@
-// Command syncmaster is the entry point for the syncmaster synchronization
-// tool. It parses flags and delegates to the internal syncmaster package.
+// Command syncmaster is the entry point. It parses flags, wires the built-in
+// drivers, builds the dependency-injection environment, and delegates to the
+// internal syncmaster orchestrator.
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
+	"os/user"
+	"strconv"
 	"syscall"
 
 	"syncmaster/internal"
+	"syncmaster/internal/clock"
+	"syncmaster/internal/config"
+	"syncmaster/internal/driver"
+	"syncmaster/internal/drivers"
+	"syncmaster/internal/fs"
+	"syncmaster/internal/gvfs"
+	"syncmaster/internal/shell"
+	"syncmaster/internal/stats"
 	"syncmaster/internal/syncmaster"
 )
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// run is the testable core of main: it parses args, builds the application,
-// and runs one sync pass. It returns an error instead of calling os.Exit so
-// tests can assert on it.
-func run(args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("syncmaster", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+func run(args []string, stdout, stderr *os.File) int {
+	fsFlags := flag.NewFlagSet("syncmaster", flag.ContinueOnError)
+	fsFlags.SetOutput(stderr)
 
-	var (
-		source      = fs.String("source", "", "location to sync from")
-		destination = fs.String("destination", "", "location to sync to")
-		verbose     = fs.Bool("verbose", false, "print progress to stdout")
-		showVersion = fs.Bool("version", false, "print version and exit")
-	)
+	showVersion := fsFlags.Bool("version", false, "print version and exit")
+	verbose := fsFlags.Bool("verbose", false, "print verbose progress")
+	allowMissingGPS := fsFlags.Bool("allow-missing-gps", false, "import images even without GPS")
+	device := fsFlags.String("device", "", "select a specific device when multiple are connected")
 
-	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("parsing flags: %w", err)
+	if err := fsFlags.Parse(args); err != nil {
+		return 2
 	}
-
 	if *showVersion {
 		_, _ = fmt.Fprintln(stdout, internal.Version)
-		return nil
+		return 0
 	}
 
-	cfg := syncmaster.Config{
-		Source:      *source,
-		Destination: *destination,
-		Verbose:     *verbose,
+	rest := fsFlags.Args()
+	mode := "auto"
+	dest := ""
+	if len(rest) >= 1 {
+		mode = rest[0]
+	}
+	if len(rest) >= 2 {
+		dest = rest[1]
 	}
 
-	sm, err := syncmaster.New(cfg, stdout)
-	if err != nil {
-		return fmt.Errorf("building syncmaster: %w", err)
+	home, uid := homeAndUID()
+	cfg := config.FromEnv(os.Getenv, home, uid)
+	cfg.Mode = mode
+	cfg.DestOverride = dest
+	cfg.AllowMissingGPS = *allowMissingGPS
+	cfg.Verbose = *verbose
+	cfg.Device = *device
+	if err := cfg.Validate(); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 2
 	}
+
+	st := stats.New()
+	gio := &gvfs.Gio{Runner: shell.Exec{}, Root: cfg.GVFSRoot}
+	env := &driver.Env{
+		Config: &cfg,
+		Source: gio,
+		Mounts: gio,
+		Local:  fs.OS{},
+		Clock:  clock.Real{},
+		Runner: shell.Exec{},
+		Stats:  st,
+		Out:    stdout,
+		Err:    stderr,
+	}
+
+	drivers.RegisterAll()
+	app := &syncmaster.App{Env: env}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := sm.Run(ctx); err != nil {
-		return fmt.Errorf("sync failed: %w", err)
+	runErr := app.Run(ctx)
+	finishErr := app.Finish()
+	return exitCode(runErr, finishErr)
+}
+
+func exitCode(errs ...error) int {
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		switch {
+		case errors.Is(err, syncmaster.ErrUsage),
+			errors.Is(err, syncmaster.ErrMultipleDevices),
+			errors.Is(err, syncmaster.ErrNoDevice):
+			return 2
+		default:
+			return 1
+		}
 	}
-	return nil
+	return 0
+}
+
+func homeAndUID() (string, int) {
+	home := ""
+	if u, err := user.Current(); err == nil {
+		home = u.HomeDir
+		if uid, err := strconv.Atoi(u.Uid); err == nil {
+			return home, uid
+		}
+	}
+	return home, os.Getuid()
 }
