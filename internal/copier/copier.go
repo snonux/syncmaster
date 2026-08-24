@@ -32,8 +32,20 @@ type Source interface {
 	Copy(ctx context.Context, src, dst string) error
 }
 
+// SkipCtx bundles everything a SkipPolicy may need. Policies read only the
+// fields they care about; adding a field here does not change any policy's
+// signature, so new dependencies do not force every policy to widen.
+type SkipCtx struct {
+	Ctx      context.Context
+	Src      Source
+	Entry    Entry
+	DestPath string
+	Local    fs.FS
+	Clock    clock.Clock
+}
+
 // SkipPolicy decides whether to skip copying an entry. Returning true skips.
-type SkipPolicy func(ctx context.Context, src Source, e Entry, destPath string, local fs.FS, clk clock.Clock) (bool, error)
+type SkipPolicy func(sc SkipCtx) (bool, error)
 
 // DestResolver maps an entry to a destination path relative to the copy root.
 // include=false excludes the entry entirely (not counted as found).
@@ -153,7 +165,7 @@ func (c *Copier) applySkip(ctx context.Context, e Entry, destPath string) (bool,
 	if clk == nil {
 		clk = zeroClock{}
 	}
-	return c.Skip(ctx, c.Src, e, destPath, c.Local, clk)
+	return c.Skip(SkipCtx{Ctx: ctx, Src: c.Src, Entry: e, DestPath: destPath, Local: c.Local, Clock: clk})
 }
 
 func (c *Copier) logf(format string, args ...any) {
@@ -168,47 +180,47 @@ type zeroClock struct{}
 
 func (zeroClock) Now() time.Time { return time.Time{} }
 
-// SkipExistingName skips when a file with the same name already exists at the
-// destination (Fujifilm behavior).
-func SkipExistingName(_ context.Context, _ Source, _ Entry, destPath string, local fs.FS, _ clock.Clock) (bool, error) {
-	_, err := local.Stat(destPath)
+// SkipExistingName skips when a file with the same name already exists at
+// the destination (Fujifilm behavior).
+func SkipExistingName(sc SkipCtx) (bool, error) {
+	_, err := sc.Local.Stat(sc.DestPath)
 	if err == nil {
 		return true, nil
 	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
-	return false, fmt.Errorf("stat %s: %w", destPath, err)
+	return false, fmt.Errorf("stat %s: %w", sc.DestPath, err)
 }
 
 // SkipExistingSize skips when the destination exists with the same size as
 // the source entry. If the destination is missing or has a different size it
 // is copied (Fujifilm re-sync behavior).
-func SkipExistingSize(_ context.Context, _ Source, e Entry, destPath string, local fs.FS, _ clock.Clock) (bool, error) {
-	de, err := local.Stat(destPath)
+func SkipExistingSize(sc SkipCtx) (bool, error) {
+	de, err := sc.Local.Stat(sc.DestPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
 		}
-		return false, fmt.Errorf("stat %s: %w", destPath, err)
+		return false, fmt.Errorf("stat %s: %w", sc.DestPath, err)
 	}
-	return de.Size == e.Size, nil
+	return de.Size == sc.Entry.Size, nil
 }
 
 // SkipUnchangedSizeMtime skips when the destination exists with the same size
 // and modification time (unix seconds) as the source (Supernote behavior).
-func SkipUnchangedSizeMtime(_ context.Context, _ Source, e Entry, destPath string, local fs.FS, _ clock.Clock) (bool, error) {
-	de, err := local.Stat(destPath)
+func SkipUnchangedSizeMtime(sc SkipCtx) (bool, error) {
+	de, err := sc.Local.Stat(sc.DestPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
 		}
-		return false, fmt.Errorf("stat %s: %w", destPath, err)
+		return false, fmt.Errorf("stat %s: %w", sc.DestPath, err)
 	}
-	if de.Size != e.Size {
+	if de.Size != sc.Entry.Size {
 		return false, nil
 	}
-	return de.ModTime.Unix() == e.Modified.Unix(), nil
+	return de.ModTime.Unix() == sc.Entry.Modified.Unix(), nil
 }
 
 func joinRel(rel, name string) string {

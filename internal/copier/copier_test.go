@@ -326,3 +326,31 @@ func TestCopyTreeAbortMidCopy(t *testing.T) {
 		t.Fatalf("Copied = %d, want 0", st.Get(stats.Copied))
 	}
 }
+
+func TestSkipCtxCustomPolicy(t *testing.T) {
+	// A custom policy can read only the fields it needs (here just Entry.Size)
+	// — the struct signature does not force it to take every dep.
+	local := fs.NewMem()
+	_ = local.WriteFile("/dst/f.jpg", []byte("x"), 0o644)
+	skipIfSmall := func(sc SkipCtx) (bool, error) {
+		return sc.Entry.Size < 10, nil
+	}
+	skip, err := skipIfSmall(SkipCtx{Entry: Entry{Size: 5}, DestPath: "/dst/f.jpg", Local: local})
+	if err != nil || !skip {
+		t.Fatalf("small entry should skip: skip=%v err=%v", skip, err)
+	}
+	skip, err = skipIfSmall(SkipCtx{Entry: Entry{Size: 50}, DestPath: "/dst/f.jpg", Local: local})
+	if err != nil || skip {
+		t.Fatalf("large entry should not skip: skip=%v err=%v", skip, err)
+	}
+
+	// The built-in policies accept a SkipCtx directly.
+	s, err := SkipExistingSize(SkipCtx{DestPath: "/dst/f.jpg", Local: local, Entry: Entry{Size: 1}})
+	if err != nil || !s {
+		t.Fatalf("existing dest with same size should be skipped by SkipExistingSize: skip=%v err=%v", s, err)
+	}
+	s, err = SkipExistingSize(SkipCtx{DestPath: "/dst/f.jpg", Local: local, Entry: Entry{Size: 99}})
+	if err != nil || s {
+		t.Fatalf("existing dest with different size should be copied: skip=%v err=%v", s, err)
+	}
+}
