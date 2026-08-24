@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -49,7 +50,8 @@ func TestFindMountsAndExists(t *testing.T) {
 			if path == "/gvfs/gphoto2:usb" {
 				return []byte("ok"), nil
 			}
-			return nil, errors.New("unreachable")
+			// non-zero exit => unreachable
+			return nil, &exec.ExitError{}
 		}
 		return []byte(""), nil
 	})
@@ -71,6 +73,55 @@ func TestFindMountsAndExists(t *testing.T) {
 	ok, err = g.Exists(context.Background(), "/gvfs/mtp:other")
 	if err != nil || ok {
 		t.Fatalf("Exists mtp:other = %v, %v", ok, err)
+	}
+}
+
+func TestExistsDistinguishesErrors(t *testing.T) {
+	// success -> (true, nil)
+	f := shell.NewFake()
+	f.Register("gio", func(context.Context, []string) ([]byte, error) { return []byte("ok"), nil })
+	g := &Gio{Runner: f}
+	if ok, err := g.Exists(context.Background(), "/x"); err != nil || !ok {
+		t.Fatalf("success: ok=%v err=%v", ok, err)
+	}
+
+	// non-zero exit (unreachable) -> (false, nil)
+	f = shell.NewFake()
+	f.Register("gio", func(context.Context, []string) ([]byte, error) { return nil, &exec.ExitError{} })
+	g = &Gio{Runner: f}
+	if ok, err := g.Exists(context.Background(), "/x"); err != nil || ok {
+		t.Fatalf("exit error: ok=%v err=%v", ok, err)
+	}
+
+	// real (non-exit) error -> (false, err)
+	f = shell.NewFake()
+	f.Register("gio", func(context.Context, []string) ([]byte, error) { return nil, errors.New("boom") })
+	g = &Gio{Runner: f}
+	if ok, err := g.Exists(context.Background(), "/x"); err == nil || ok {
+		t.Fatalf("real error: ok=%v err=%v", ok, err)
+	}
+
+	// context cancelled -> (false, ctx.Err()), even if the runner reports an exit error
+	f = shell.NewFake()
+	f.Register("gio", func(context.Context, []string) ([]byte, error) { return nil, &exec.ExitError{} })
+	g = &Gio{Runner: f}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if ok, err := g.Exists(ctx, "/x"); err == nil || ok {
+		t.Fatalf("cancelled: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestFindMountsPropagatesRealError(t *testing.T) {
+	f := shell.NewFake()
+	f.Register("gio", func(context.Context, []string) ([]byte, error) {
+		return nil, errors.New("i/o error")
+	})
+	g := &Gio{Runner: f, Root: "/gvfs", ReadDir: func(_ string) ([]string, error) {
+		return []string{"gphoto2:usb"}, nil
+	}}
+	if _, err := g.FindMounts(context.Background(), "gphoto2:*"); err == nil {
+		t.Fatal("expected FindMounts to propagate a real Exists error")
 	}
 }
 

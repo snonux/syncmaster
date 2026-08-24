@@ -5,6 +5,7 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
@@ -34,6 +35,17 @@ func (Exec) Run(ctx context.Context, name string, args ...string) ([]byte, error
 
 // LookPath reports whether name is available on PATH.
 func (Exec) LookPath(name string) (string, error) { return exec.LookPath(name) }
+
+// IsExitError reports whether err indicates a command that ran and exited with
+// a non-zero status (*exec.ExitError), as opposed to a failure to launch the
+// command (e.g. the binary is missing) or an I/O / context error. Callers that
+// treat a non-zero exit as an expected outcome — for example, "gio info"
+// exiting non-zero means the path is unreachable — use this to separate that
+// case from a genuine failure they must surface.
+func IsExitError(err error) bool {
+	var ee *exec.ExitError
+	return errors.As(err, &ee)
+}
 
 // Call records one invocation of a fake Runner.
 type Call struct {

@@ -38,10 +38,21 @@ func (Driver) Detect(ctx context.Context, env *driver.Env) ([]driver.Device, err
 			seen[m] = true
 			source := m
 			storage := filepath.Join(m, "Internal shared storage")
-			if ok, _ := env.Mounts.Exists(ctx, storage); ok {
+			ok, err := env.Mounts.Exists(ctx, storage)
+			if err != nil {
+				return nil, fmt.Errorf("supernote: stat storage %s: %w", storage, err)
+			}
+			if ok {
 				source = storage
-			} else if ok, _ := env.Mounts.Exists(ctx, m); !ok {
-				continue
+			} else {
+				// Storage subfolder absent; confirm the mount root is usable.
+				mountOK, err := env.Mounts.Exists(ctx, m)
+				if err != nil {
+					return nil, fmt.Errorf("supernote: stat mount %s: %w", m, err)
+				}
+				if !mountOK {
+					continue
+				}
 			}
 			devs = append(devs, driver.Device{
 				Driver: "supernote",
@@ -89,7 +100,11 @@ func (Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) erro
 	log("Supernote note files are copied locally.")
 
 	documentRoot := filepath.Join(dev.Source, "Document")
-	if docOK, _ := env.Mounts.Exists(ctx, documentRoot); docOK {
+	docOK, err := env.Mounts.Exists(ctx, documentRoot)
+	if err != nil {
+		return fmt.Errorf("supernote: check Document folder: %w", err)
+	}
+	if docOK {
 		koDest := filepath.Join(dest, "KOReader")
 		if err := env.Local.MkdirAll(koDest, 0o755); err != nil {
 			return fmt.Errorf("supernote: mkdir %s: %w", koDest, err)

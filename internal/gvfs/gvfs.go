@@ -57,13 +57,24 @@ func (g *Gio) FindMounts(ctx context.Context, glob string) ([]string, error) {
 	return mounts, nil
 }
 
-// Exists reports whether gio info succeeds on path.
+// Exists reports whether path is reachable per "gio info". A non-zero exit
+// from "gio info" means the path is unreachable and is reported as
+// (false, nil); a genuine failure (missing gio, I/O error, or context
+// cancellation) is returned as an error so callers can distinguish it from an
+// absent path instead of silently dropping the device.
 func (g *Gio) Exists(ctx context.Context, path string) (bool, error) {
-	if _, err := g.Runner.Run(ctx, "gio", "info", path); err != nil {
+	_, err := g.Runner.Run(ctx, "gio", "info", path)
+	if err == nil {
+		return true, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
+	if shell.IsExitError(err) {
 		// gio info exits non-zero when the path is unreachable.
 		return false, nil
 	}
-	return true, nil
+	return false, fmt.Errorf("gio info %s: %w", path, err)
 }
 
 // ModifiedTime returns the time::modified attribute of path as a unix time.

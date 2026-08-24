@@ -3,6 +3,7 @@ package supernote
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -18,14 +19,15 @@ import (
 )
 
 type fakeTree struct {
-	dirs   map[string][]copier.Entry
-	files  map[string][]byte
-	mounts []string
-	exists map[string]bool
+	dirs      map[string][]copier.Entry
+	files     map[string][]byte
+	mounts    []string
+	exists    map[string]bool
+	existsErr map[string]error
 }
 
 func newFakeTree() *fakeTree {
-	return &fakeTree{dirs: map[string][]copier.Entry{}, files: map[string][]byte{}, exists: map[string]bool{}}
+	return &fakeTree{dirs: map[string][]copier.Entry{}, files: map[string][]byte{}, exists: map[string]bool{}, existsErr: map[string]error{}}
 }
 
 func (t *fakeTree) addDir(dir, name string) {
@@ -40,7 +42,12 @@ func (t *fakeTree) addFile(dir, name string, content []byte) {
 func (t *fakeTree) List(context.Context, string) ([]copier.Entry, error) { return nil, nil }
 func (t *fakeTree) Copy(context.Context, string, string) error           { return nil }
 func (t *fakeTree) FindMounts(context.Context, string) ([]string, error) { return t.mounts, nil }
-func (t *fakeTree) Exists(_ context.Context, path string) (bool, error)  { return t.exists[path], nil }
+func (t *fakeTree) Exists(_ context.Context, path string) (bool, error) {
+	if err, ok := t.existsErr[path]; ok {
+		return false, err
+	}
+	return t.exists[path], nil
+}
 func (t *fakeTree) ModifiedTime(context.Context, string) (time.Time, error) {
 	return time.Unix(1000, 0), nil
 }
@@ -99,6 +106,47 @@ func TestDetectFallsBackToRoot(t *testing.T) {
 	}
 	if len(devs) != 1 || devs[0].Source != "/gvfs/mtp:Supernote" {
 		t.Fatalf("devs = %+v", devs)
+	}
+}
+
+func TestDetectSurfacesExistsError(t *testing.T) {
+	mounts := newFakeTree()
+	mounts.mounts = []string{"/gvfs/mtp:Supernote"}
+	mounts.existsErr["/gvfs/mtp:Supernote/Internal shared storage"] = errors.New("mtp i/o error")
+	if _, err := (Driver{}).Detect(context.Background(), &driver.Env{Mounts: mounts}); err == nil {
+		t.Fatal("expected error when storage Exists fails")
+	}
+}
+
+func TestDetectSurfacesMountError(t *testing.T) {
+	mounts := newFakeTree()
+	mounts.mounts = []string{"/gvfs/mtp:Supernote"}
+	mounts.existsErr["/gvfs/mtp:Supernote"] = errors.New("mtp i/o error")
+	if _, err := (Driver{}).Detect(context.Background(), &driver.Env{Mounts: mounts}); err == nil {
+		t.Fatal("expected error when mount Exists fails")
+	}
+}
+
+func TestSyncSurfacesNoteExistsError(t *testing.T) {
+	tree := newFakeTree()
+	storage := "/dev/Supernote/Internal shared storage"
+	tree.existsErr[filepath.Join(storage, "Note")] = errors.New("mtp i/o error")
+	env := newEnv(t, baseCfg(), stats.New())
+	env.Mounts = tree
+	if err := (Driver{}).Sync(context.Background(), driver.Device{Source: storage}, env); err == nil {
+		t.Fatal("expected error when Note Exists fails")
+	}
+}
+
+func TestSyncSurfacesDocumentExistsError(t *testing.T) {
+	tree := newFakeTree()
+	storage := "/dev/Supernote/Internal shared storage"
+	tree.exists[filepath.Join(storage, "Note")] = true
+	tree.existsErr[filepath.Join(storage, "Document")] = errors.New("mtp i/o error")
+	env := newEnv(t, baseCfg(), stats.New())
+	env.Mounts = tree
+	if err := (Driver{}).Sync(context.Background(), driver.Device{Source: storage}, env); err == nil {
+		t.Fatal("expected error when Document Exists fails")
 	}
 }
 

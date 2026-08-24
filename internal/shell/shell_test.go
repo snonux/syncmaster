@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -70,6 +71,32 @@ func TestExecLookPath(t *testing.T) {
 	// sh is present on every POSIX system.
 	if _, err := (Exec{}).LookPath("sh"); err != nil {
 		t.Fatalf("LookPath(sh): %v", err)
+	}
+}
+
+func TestIsExitError(t *testing.T) {
+	if !IsExitError(&exec.ExitError{}) {
+		t.Fatal("expected true for *exec.ExitError")
+	}
+	if IsExitError(nil) {
+		t.Fatal("expected false for nil")
+	}
+	if IsExitError(errors.New("plain")) {
+		t.Fatal("expected false for plain error")
+	}
+	if !IsExitError(fmt.Errorf("wrapped: %w", &exec.ExitError{})) {
+		t.Fatal("expected true for wrapped *exec.ExitError")
+	}
+	// Launch failure (binary missing) is NOT an exit error.
+	if IsExitError(exec.Command("no-such-bin-zzz").Run()) {
+		t.Fatal("expected false for launch failure")
+	}
+	// Context errors are NOT exit errors.
+	if IsExitError(context.Canceled) {
+		t.Fatal("expected false for context.Canceled")
+	}
+	if IsExitError(context.DeadlineExceeded) {
+		t.Fatal("expected false for context.DeadlineExceeded")
 	}
 }
 

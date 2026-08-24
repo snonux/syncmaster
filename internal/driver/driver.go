@@ -33,6 +33,9 @@ type Device struct {
 // copier.Source so drivers that don't use GVFS need not implement it.
 type MountFS interface {
 	FindMounts(ctx context.Context, glob string) ([]string, error)
+	// Exists reports whether path exists/is reachable. It returns (false, nil)
+	// when path is confirmed absent or unreachable; a non-nil error is a real
+	// failure (I/O, missing tool, context) that callers must handle.
 	Exists(ctx context.Context, path string) (bool, error)
 	ModifiedTime(ctx context.Context, path string) (time.Time, error)
 }
