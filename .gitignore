@@ -1,0 +1,4 @@
+/syncmaster
+*.test
+*.out
+dist/
