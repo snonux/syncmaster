@@ -4,6 +4,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -69,6 +71,20 @@ func FromEnv(getenv func(string) string, home string, uid int) Config {
 	}
 	c.Mode = "auto"
 	return c
+}
+
+// HomeAndUID resolves the current user's home directory and unix uid for
+// default config paths. It does user.Current I/O and is kept here (rather
+// than in cmd) so the wiring that builds a Config lives in one package.
+func HomeAndUID() (string, int) {
+	home := ""
+	if u, err := user.Current(); err == nil {
+		home = u.HomeDir
+		if uid, err := strconv.Atoi(u.Uid); err == nil {
+			return home, uid
+		}
+	}
+	return home, os.Getuid()
 }
 
 // Defaults returns the built-in default configuration for the given home and
