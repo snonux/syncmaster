@@ -259,3 +259,37 @@ func TestCopyTreeNilDeps(t *testing.T) {
 type failingSource struct{ *memSource }
 
 func (f failingSource) Copy(context.Context, string, string) error { return io.ErrShortBuffer }
+
+// blockingSource blocks on ctx for the first file's Copy, then returns the ctx
+// error. Used to prove cancellation aborts a copy in progress.
+type blockingSource struct{ *memSource }
+
+func (b blockingSource) Copy(ctx context.Context, src, dst string) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestCopyTreeAbortMidCopy(t *testing.T) {
+	src := newMemSource()
+	src.addFile("/src", "a.txt", 1, time.Unix(1, 0), []byte("a"))
+	src.addFile("/src", "b.txt", 1, time.Unix(1, 0), []byte("b"))
+	local := fs.NewMem()
+	st := stats.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &Copier{Src: blockingSource{src}, Local: local, Stats: st}
+
+	done := make(chan error, 1)
+	go func() { done <- c.CopyTree(ctx, "/src", "/dst") }()
+	cancel() // abort mid-copy
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected cancellation error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("CopyTree did not abort within 2s")
+	}
+	if st.Get(stats.Copied) != 0 {
+		t.Fatalf("Copied = %d, want 0", st.Get(stats.Copied))
+	}
+}

@@ -86,8 +86,17 @@ func run(args []string, stdout, stderr *os.File) int {
 	drivers.RegisterAll()
 	app := &syncmaster.App{Env: env}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh // first signal: graceful abort
+		_, _ = fmt.Fprintln(stderr, "Aborting... (Ctrl+C again to force)")
+		stop()
+		<-sigCh // second signal: hard exit
+		os.Exit(130)
+	}()
 
 	runErr := app.Run(ctx)
 	finishErr := app.Finish()

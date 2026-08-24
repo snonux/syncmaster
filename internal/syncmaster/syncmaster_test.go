@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"syncmaster/internal/config"
 	"syncmaster/internal/driver"
@@ -31,6 +32,38 @@ func (f *fakeDriver) Sync(_ context.Context, dev driver.Device, env *driver.Env)
 	f.synced = append(f.synced, dev)
 	env.Stats.Inc(stats.Copied, 1)
 	return f.syncErr
+}
+
+// blockingDriver's Sync blocks until ctx is done, to prove the orchestrator
+// aborts a run when the context is cancelled.
+type blockingDriver struct{ name string }
+
+func (b blockingDriver) Name() string { return b.name }
+func (b blockingDriver) Detect(context.Context, *driver.Env) ([]driver.Device, error) {
+	return []driver.Device{{Driver: b.name, Label: "block"}}, nil
+}
+func (b blockingDriver) Sync(ctx context.Context, _ driver.Device, _ *driver.Env) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestRunAbortDuringSync(t *testing.T) {
+	resetDrivers()
+	defer resetDrivers()
+	_ = driver.Register(blockingDriver{name: "block"})
+	app := newApp(stats.New(), config.Config{Mode: "block", GVFSRoot: "/x", ConvertParallelism: 1})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- app.Run(ctx) }()
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected cancellation error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not abort within 2s")
+	}
 }
 
 func newApp(st *stats.Stats, cfg config.Config) *App {

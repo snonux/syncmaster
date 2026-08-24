@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sync"
+	"time"
 )
 
 // Runner runs an external command and returns its stdout, and resolves
@@ -21,9 +22,11 @@ type Runner interface {
 type Exec struct{}
 
 // Run executes name with args, capturing stdout. A non-zero exit is reported
-// as an *exec.ExitError.
+// as an *exec.ExitError. On context cancellation the process is killed
+// (SIGKILL); WaitDelay ensures Run never hangs on inherited pipes.
 func (Exec) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = 2 * time.Second
 	return cmd.Output()
 }
 
