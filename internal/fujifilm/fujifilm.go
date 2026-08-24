@@ -18,6 +18,8 @@ type Driver struct {
 	Media *media.Registry // defaults to media.Default() when nil
 }
 
+var _ driver.Driver = (*Driver)(nil)
+
 // Name returns the driver name.
 func (Driver) Name() string { return "fujifilm" }
 

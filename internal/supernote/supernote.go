@@ -16,6 +16,8 @@ import (
 // Driver syncs from a Supernote Nomad mounted via GVFS (MTP).
 type Driver struct{}
 
+var _ driver.Driver = (*Driver)(nil)
+
 // Name returns the driver name.
 func (Driver) Name() string { return "supernote" }
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"syncmaster/internal/copier"
+	"syncmaster/internal/driver"
 	"syncmaster/internal/shell"
 )
 
@@ -23,6 +24,9 @@ type Gio struct {
 	Root    string
 	ReadDir func(name string) ([]string, error) // names of entries under name
 }
+
+var _ copier.Source = (*Gio)(nil)
+var _ driver.MountFS = (*Gio)(nil)
 
 // FindMounts returns reachable mount paths under Root whose name matches glob
 // (e.g. "gphoto2:*", "mtp:*Supernote*"). A mount is reachable when gio info

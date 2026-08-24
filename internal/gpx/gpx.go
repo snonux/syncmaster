@@ -30,6 +30,8 @@ type Geotag struct {
 	AllowMissing bool
 }
 
+var _ driver.Transform = (*Geotag)(nil)
+
 // Runner is the subset of shell.Runner Geotag needs (declared here to keep the
 // constructor test-friendly and decoupled from the shell package).
 type Runner interface {

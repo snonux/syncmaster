@@ -41,6 +41,8 @@ type FS interface {
 // OS is the production FS backed by the os package.
 type OS struct{}
 
+var _ FS = (*OS)(nil)
+
 // Stat wraps os.Stat.
 func (OS) Stat(path string) (Entry, error) {
 	fi, err := os.Stat(path)
@@ -132,6 +134,8 @@ type Mem struct {
 	files map[string]*memFile
 	dirs  map[string]struct{}
 }
+
+var _ FS = (*Mem)(nil)
 
 type memFile struct {
 	data    []byte

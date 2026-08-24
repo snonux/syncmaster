@@ -30,6 +30,8 @@ type Convert struct {
 	Workers int          // parallel conversions; defaults to 1
 }
 
+var _ driver.Transform = (*Convert)(nil)
+
 // Name returns the transform name.
 func (c *Convert) Name() string { return "note-to-pdf" }
 
@@ -218,6 +220,8 @@ func (c *Convert) runWorkers(ctx context.Context, local fs.FS, conv Converter, j
 
 // toolConverter calls supernote-tool to convert a .note to a PDF.
 type toolConverter struct{ r shell.Runner }
+
+var _ Converter = (*toolConverter)(nil)
 
 func (t toolConverter) Convert(ctx context.Context, notePath, outPath string) error {
 	_, err := t.r.Run(ctx, "supernote-tool", "convert", "-a", "-t", "pdf", notePath, outPath)

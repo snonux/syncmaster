@@ -21,6 +21,8 @@ type Runner interface {
 // Exec is the production Runner backed by os/exec.
 type Exec struct{}
 
+var _ Runner = (*Exec)(nil)
+
 // Run executes name with args, capturing stdout. A non-zero exit is reported
 // as an *exec.ExitError. On context cancellation the process is killed
 // (SIGKILL); WaitDelay ensures Run never hangs on inherited pipes.
@@ -50,6 +52,8 @@ type Fake struct {
 	handlers map[string]Handler
 	paths    map[string]bool
 }
+
+var _ Runner = (*Fake)(nil)
 
 // NewFake returns an empty Fake.
 func NewFake() *Fake {
