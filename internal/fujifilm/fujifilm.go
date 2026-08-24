@@ -13,9 +13,11 @@ import (
 	"syncmaster/internal/media"
 )
 
-// Driver syncs from a Fujifilm camera mounted via GVFS (gphoto2).
+// Driver syncs from a Fujifilm camera mounted via GVFS (gphoto2). Media,
+// when set, overrides the file-class registry; otherwise the driver uses
+// env.Media (injected by main), falling back to media.Default().
 type Driver struct {
-	Media *media.Registry // defaults to media.Default() when nil
+	Media *media.Registry
 }
 
 var _ driver.Driver = (*Driver)(nil)
@@ -23,9 +25,15 @@ var _ driver.Driver = (*Driver)(nil)
 // Name returns the driver name.
 func (Driver) Name() string { return "fujifilm" }
 
-func (d *Driver) registry() *media.Registry {
+// registry resolves the file-class registry in DI order: the driver's own
+// field (test seam), then env.Media (injected by main), then the package
+// default.
+func (d *Driver) registry(env *driver.Env) *media.Registry {
 	if d.Media != nil {
 		return d.Media
+	}
+	if env != nil && env.Media != nil {
+		return env.Media
 	}
 	return media.Default()
 }
@@ -52,7 +60,7 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	cfg := env.Config
 	jpegDest := cfg.FujifilmJPEGDest()
 	rawDest := cfg.FujifilmRAWDest
-	reg := d.registry()
+	reg := d.registry(env)
 
 	if err := env.Local.MkdirAll(jpegDest, 0o755); err != nil {
 		return fmt.Errorf("fujifilm: mkdir %s: %w", jpegDest, err)

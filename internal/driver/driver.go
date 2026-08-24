@@ -17,6 +17,7 @@ import (
 	"syncmaster/internal/config"
 	"syncmaster/internal/copier"
 	"syncmaster/internal/fs"
+	"syncmaster/internal/media"
 	"syncmaster/internal/shell"
 	"syncmaster/internal/stats"
 )
@@ -41,17 +42,22 @@ type MountFS interface {
 }
 
 // Env is the dependency-injection bag passed to every driver and transform.
-// Drivers take what they need; none reach for globals.
+// Drivers take what they need; none reach for globals. Drivers is the driver
+// registry the orchestrator dispatches through; Media is the file-class
+// registry drivers classify files with. main constructs both so the
+// orchestrator depends on injected abstractions, not package-level globals.
 type Env struct {
-	Config *config.Config
-	Source copier.Source // remote tree (GVFS)
-	Mounts MountFS       // device discovery
-	Local  fs.FS         // local filesystem (dest side, meta, rollback)
-	Clock  clock.Clock   // deterministic time
-	Runner shell.Runner  // external commands (gio/exiftool/supernote-tool)
-	Stats  *stats.Stats  // shared, concurrency-safe
-	Out    io.Writer     // progress log
-	Err    io.Writer     // error log
+	Config  *config.Config  // runtime config
+	Source  copier.Source   // remote tree (GVFS)
+	Mounts  MountFS         // device discovery
+	Local   fs.FS           // local filesystem (dest side, meta, rollback)
+	Clock   clock.Clock     // deterministic time
+	Runner  shell.Runner    // external commands (gio/exiftool/supernote-tool)
+	Stats   *stats.Stats    // shared, concurrency-safe
+	Out     io.Writer       // progress log
+	Err     io.Writer       // error log
+	Drivers *Registry       // driver registry (dispatch); required for Run
+	Media   *media.Registry // file-class registry; drivers fall back to Default() if nil
 }
 
 // Driver discovers devices and syncs from one. Implement this + Register to

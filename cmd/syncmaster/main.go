@@ -21,6 +21,7 @@ import (
 	"syncmaster/internal/drivers"
 	"syncmaster/internal/fs"
 	"syncmaster/internal/gvfs"
+	"syncmaster/internal/media"
 	"syncmaster/internal/shell"
 	"syncmaster/internal/stats"
 	"syncmaster/internal/syncmaster"
@@ -74,20 +75,25 @@ func run(args []string, stdout, stderr *os.File) int {
 	}
 
 	st := stats.New()
+	reg := driver.NewRegistry()
+	drivers.RegisterAll(reg)
+	mreg := media.NewRegistry()
+	media.RegisterDefaults(mreg)
 	gio := &gvfs.Gio{Runner: shell.Exec{Timeout: cfg.IOTimeout}, Root: cfg.GVFSRoot}
 	env := &driver.Env{
-		Config: &cfg,
-		Source: gio,
-		Mounts: gio,
-		Local:  fs.OS{},
-		Clock:  clock.Real{},
-		Runner: shell.Exec{Timeout: cfg.IOTimeout},
-		Stats:  st,
-		Out:    stdout,
-		Err:    stderr,
+		Config:  &cfg,
+		Source:  gio,
+		Mounts:  gio,
+		Local:   fs.OS{},
+		Clock:   clock.Real{},
+		Runner:  shell.Exec{Timeout: cfg.IOTimeout},
+		Stats:   st,
+		Out:     stdout,
+		Err:     stderr,
+		Drivers: reg,
+		Media:   mreg,
 	}
 
-	drivers.RegisterAll()
 	app := &syncmaster.App{Env: env}
 
 	ctx, stop := context.WithCancel(context.Background())

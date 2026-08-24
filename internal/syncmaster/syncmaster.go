@@ -37,12 +37,26 @@ func (a *App) Run(ctx context.Context) error {
 	case "auto":
 		return a.runAuto(ctx)
 	default:
-		d, ok := driver.Lookup(a.Env.Config.Mode)
+		reg, err := a.drivers()
+		if err != nil {
+			return err
+		}
+		d, ok := reg.Lookup(a.Env.Config.Mode)
 		if !ok {
 			return fmt.Errorf("%w: unknown mode %q", ErrUsage, a.Env.Config.Mode)
 		}
 		return a.runOne(ctx, d)
 	}
+}
+
+// drivers returns the injected driver registry, or a clear error if the Env
+// was not wired with one. The orchestrator depends on this injected
+// abstraction rather than the package-level default registry.
+func (a *App) drivers() (*driver.Registry, error) {
+	if a.Env == nil || a.Env.Drivers == nil {
+		return nil, fmt.Errorf("internal: driver registry not configured")
+	}
+	return a.Env.Drivers, nil
 }
 
 func (a *App) runOne(ctx context.Context, d driver.Driver) error {
@@ -60,8 +74,12 @@ func (a *App) runOne(ctx context.Context, d driver.Driver) error {
 }
 
 func (a *App) runAuto(ctx context.Context) error {
+	reg, err := a.drivers()
+	if err != nil {
+		return err
+	}
 	var all []driver.Device
-	for _, d := range driver.All() {
+	for _, d := range reg.All() {
 		ds, err := d.Detect(ctx, a.Env)
 		if err != nil {
 			_, _ = fmt.Fprintf(a.Env.Err, "%s: detect: %v\n", d.Name(), err)
@@ -82,7 +100,7 @@ func (a *App) runAuto(ctx context.Context) error {
 	case 0:
 		return ErrNoDevice
 	case 1:
-		d, ok := driver.Lookup(all[0].Driver)
+		d, ok := reg.Lookup(all[0].Driver)
 		if !ok {
 			return fmt.Errorf("internal: driver %q not registered", all[0].Driver)
 		}

@@ -219,3 +219,29 @@ func TestSyncGeotagFailureRollsBack(t *testing.T) {
 		t.Fatal("JPG should have been rolled back")
 	}
 }
+
+func TestRegistryResolution(t *testing.T) {
+	field := media.NewRegistry()
+	envReg := media.NewRegistry()
+
+	// Driver field wins.
+	d := &Driver{Media: field}
+	if got := d.registry(&driver.Env{Media: envReg}); got != field {
+		t.Fatal("expected driver field registry to win")
+	}
+	// Then env.Media.
+	d = &Driver{}
+	if got := d.registry(&driver.Env{Media: envReg}); got != envReg {
+		t.Fatal("expected env.Media registry when driver field is nil")
+	}
+	// Then the package default when both are nil.
+	d = &Driver{}
+	if got := d.registry(&driver.Env{}); got != media.Default() {
+		t.Fatal("expected media.Default() fallback when neither is set")
+	}
+	// nil env is safe.
+	d = &Driver{}
+	if got := d.registry(nil); got != media.Default() {
+		t.Fatal("expected media.Default() fallback for nil env")
+	}
+}

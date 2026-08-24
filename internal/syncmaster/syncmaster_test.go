@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,10 +49,8 @@ func (b blockingDriver) Sync(ctx context.Context, _ driver.Device, _ *driver.Env
 }
 
 func TestRunAbortDuringSync(t *testing.T) {
-	resetDrivers()
-	defer resetDrivers()
-	_ = driver.Register(blockingDriver{name: "block"})
-	app := newApp(stats.New(), config.Config{Mode: "block", GVFSRoot: "/x", ConvertParallelism: 1})
+	app := newApp(stats.New(), config.Config{Mode: "block", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: config.DefaultIOTimeout})
+	_ = app.Env.Drivers.Register(blockingDriver{name: "block"})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- app.Run(ctx) }()
@@ -68,28 +67,23 @@ func TestRunAbortDuringSync(t *testing.T) {
 
 func newApp(st *stats.Stats, cfg config.Config) *App {
 	return &App{Env: &driver.Env{
-		Config: &cfg,
-		Local:  fs.NewMem(),
-		Runner: shell.NewFake(),
-		Stats:  st,
-		Out:    new(bytes.Buffer),
-		Err:    new(bytes.Buffer),
+		Config:  &cfg,
+		Drivers: driver.NewRegistry(),
+		Local:   fs.NewMem(),
+		Runner:  shell.NewFake(),
+		Stats:   st,
+		Out:     new(bytes.Buffer),
+		Err:     new(bytes.Buffer),
 	}}
 }
 
-func resetDrivers() {
-	driver.Reset()
-}
-
 func TestRunExplicitMode(t *testing.T) {
-	resetDrivers()
-	defer resetDrivers()
 	d := &fakeDriver{name: "fake", devices: []driver.Device{{Driver: "fake", Label: "Fake", Source: "/x"}}}
-	if err := driver.Register(d); err != nil {
+	st := stats.New()
+	app := newApp(st, config.Config{Mode: "fake", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: config.DefaultIOTimeout})
+	if err := app.Env.Drivers.Register(d); err != nil {
 		t.Fatal(err)
 	}
-	st := stats.New()
-	app := newApp(st, config.Config{Mode: "fake", GVFSRoot: "/x", ConvertParallelism: 1})
 	if err := app.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -99,9 +93,7 @@ func TestRunExplicitMode(t *testing.T) {
 }
 
 func TestRunUnknownMode(t *testing.T) {
-	resetDrivers()
-	defer resetDrivers()
-	app := newApp(stats.New(), config.Config{Mode: "nope", GVFSRoot: "/x", ConvertParallelism: 1})
+	app := newApp(stats.New(), config.Config{Mode: "nope", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: config.DefaultIOTimeout})
 	err := app.Run(context.Background())
 	if !errors.Is(err, ErrUsage) {
 		t.Fatalf("err = %v, want ErrUsage", err)
@@ -109,34 +101,25 @@ func TestRunUnknownMode(t *testing.T) {
 }
 
 func TestRunExplicitNoDevice(t *testing.T) {
-	resetDrivers()
-	defer resetDrivers()
-	d := &fakeDriver{name: "fake", devices: nil}
-	_ = driver.Register(d)
-	app := newApp(stats.New(), config.Config{Mode: "fake", GVFSRoot: "/x", ConvertParallelism: 1})
+	app := newApp(stats.New(), config.Config{Mode: "fake", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: config.DefaultIOTimeout})
+	_ = app.Env.Drivers.Register(&fakeDriver{name: "fake", devices: nil})
 	if err := app.Run(context.Background()); !errors.Is(err, ErrNoDevice) {
 		t.Fatalf("err = %v, want ErrNoDevice", err)
 	}
 }
 
 func TestRunExplicitMultipleDevices(t *testing.T) {
-	resetDrivers()
-	defer resetDrivers()
-	d := &fakeDriver{name: "fake", devices: []driver.Device{{Driver: "fake"}, {Driver: "fake"}}}
-	_ = driver.Register(d)
-	app := newApp(stats.New(), config.Config{Mode: "fake", GVFSRoot: "/x", ConvertParallelism: 1})
+	app := newApp(stats.New(), config.Config{Mode: "fake", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: config.DefaultIOTimeout})
+	_ = app.Env.Drivers.Register(&fakeDriver{name: "fake", devices: []driver.Device{{Driver: "fake"}, {Driver: "fake"}}})
 	if err := app.Run(context.Background()); !errors.Is(err, ErrMultipleDevices) {
 		t.Fatalf("err = %v, want ErrMultipleDevices", err)
 	}
 }
 
 func TestRunAutoSingle(t *testing.T) {
-	resetDrivers()
-	defer resetDrivers()
 	d := &fakeDriver{name: "fake", devices: []driver.Device{{Driver: "fake", Label: "Fake"}}}
-	_ = driver.Register(d)
-	st := stats.New()
-	app := newApp(st, config.Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1})
+	app := newApp(stats.New(), config.Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: config.DefaultIOTimeout})
+	_ = app.Env.Drivers.Register(d)
 	if err := app.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -146,21 +129,17 @@ func TestRunAutoSingle(t *testing.T) {
 }
 
 func TestRunAutoNone(t *testing.T) {
-	resetDrivers()
-	defer resetDrivers()
-	_ = driver.Register(&fakeDriver{name: "fake", devices: nil})
-	app := newApp(stats.New(), config.Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1})
+	app := newApp(stats.New(), config.Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: config.DefaultIOTimeout})
+	_ = app.Env.Drivers.Register(&fakeDriver{name: "fake", devices: nil})
 	if err := app.Run(context.Background()); !errors.Is(err, ErrNoDevice) {
 		t.Fatalf("err = %v, want ErrNoDevice", err)
 	}
 }
 
 func TestRunAutoMultiple(t *testing.T) {
-	resetDrivers()
-	defer resetDrivers()
-	_ = driver.Register(&fakeDriver{name: "a", devices: []driver.Device{{Driver: "a", Label: "A"}}})
-	_ = driver.Register(&fakeDriver{name: "b", devices: []driver.Device{{Driver: "b", Label: "B"}}})
-	app := newApp(stats.New(), config.Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1})
+	app := newApp(stats.New(), config.Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: config.DefaultIOTimeout})
+	_ = app.Env.Drivers.Register(&fakeDriver{name: "a", devices: []driver.Device{{Driver: "a", Label: "A"}}})
+	_ = app.Env.Drivers.Register(&fakeDriver{name: "b", devices: []driver.Device{{Driver: "b", Label: "B"}}})
 	err := app.Run(context.Background())
 	if !errors.Is(err, ErrMultipleDevices) {
 		t.Fatalf("err = %v, want ErrMultipleDevices", err)
@@ -168,18 +147,29 @@ func TestRunAutoMultiple(t *testing.T) {
 }
 
 func TestRunAutoDeviceSelector(t *testing.T) {
-	resetDrivers()
-	defer resetDrivers()
 	da := &fakeDriver{name: "a", devices: []driver.Device{{Driver: "a", Label: "A"}}}
 	db := &fakeDriver{name: "b", devices: []driver.Device{{Driver: "b", Label: "B"}}}
-	_ = driver.Register(da)
-	_ = driver.Register(db)
-	app := newApp(stats.New(), config.Config{Mode: "auto", Device: "b", GVFSRoot: "/x", ConvertParallelism: 1})
+	app := newApp(stats.New(), config.Config{Mode: "auto", Device: "b", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: config.DefaultIOTimeout})
+	_ = app.Env.Drivers.Register(da)
+	_ = app.Env.Drivers.Register(db)
 	if err := app.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if len(db.synced) != 1 || len(da.synced) != 0 {
 		t.Fatalf("selector should run only b: a=%d b=%d", len(da.synced), len(db.synced))
+	}
+}
+
+func TestRunMissingRegistry(t *testing.T) {
+	// No Drivers wired: the orchestrator must surface a clear error instead
+	// of reaching for the package-level default registry.
+	app := &App{Env: &driver.Env{Config: &config.Config{Mode: "auto"}}}
+	if err := app.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "registry not configured") {
+		t.Fatalf("auto err = %v, want registry-not-configured", err)
+	}
+	app = &App{Env: &driver.Env{Config: &config.Config{Mode: "fake"}}}
+	if err := app.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "registry not configured") {
+		t.Fatalf("explicit err = %v, want registry-not-configured", err)
 	}
 }
 
