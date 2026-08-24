@@ -172,6 +172,20 @@ func SkipExistingName(_ context.Context, _ Source, _ Entry, destPath string, loc
 	return false, fmt.Errorf("stat %s: %w", destPath, err)
 }
 
+// SkipExistingSize skips when the destination exists with the same size as
+// the source entry. If the destination is missing or has a different size it
+// is copied (Fujifilm re-sync behavior).
+func SkipExistingSize(_ context.Context, _ Source, e Entry, destPath string, local fs.FS, _ clock.Clock) (bool, error) {
+	de, err := local.Stat(destPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat %s: %w", destPath, err)
+	}
+	return de.Size == e.Size, nil
+}
+
 // SkipUnchangedSizeMtime skips when the destination exists with the same size
 // and modification time (unix seconds) as the source (Supernote behavior).
 func SkipUnchangedSizeMtime(_ context.Context, _ Source, e Entry, destPath string, local fs.FS, _ clock.Clock) (bool, error) {

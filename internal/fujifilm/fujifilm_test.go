@@ -159,8 +159,8 @@ func TestSyncSkipExisting(t *testing.T) {
 	cfg := baseCfg()
 	env := newEnv(t, nil, tree, st, cfg)
 	env.Source = writingSource{tree, env.Local}
-	// Pre-create the RAW file so it's skipped.
-	_ = env.Local.WriteFile(filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF"), []byte("existing"), 0o644)
+	// Pre-create the RAW file with the same size so SkipExistingSize skips it.
+	_ = env.Local.WriteFile(filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF"), []byte("xxx"), 0o644)
 
 	d := &Driver{Media: media.Default()}
 	if err := d.Sync(context.Background(), driver.Device{Source: "/src"}, env); err != nil {
@@ -171,6 +171,30 @@ func TestSyncSkipExisting(t *testing.T) {
 	}
 	if g := st.Get(stats.Copied); g != 0 {
 		t.Fatalf("Copied = %d, want 0", g)
+	}
+}
+
+func TestSyncReplacesDifferentSize(t *testing.T) {
+	tree := newFakeTree()
+	tree.addFile("/src", "DSC0001.RAF", []byte("raw"))
+	tree.mounts = []string{"/src"}
+
+	st := stats.New()
+	cfg := baseCfg()
+	env := newEnv(t, nil, tree, st, cfg)
+	env.Source = writingSource{tree, env.Local}
+	// Pre-create with a different size — should be re-copied, not skipped.
+	_ = env.Local.WriteFile(filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF"), []byte("existing data"), 0o644)
+
+	d := &Driver{Media: media.Default()}
+	if err := d.Sync(context.Background(), driver.Device{Source: "/src"}, env); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if g := st.Get(stats.Skipped); g != 0 {
+		t.Fatalf("Skipped = %d, want 0", g)
+	}
+	if g := st.Get(stats.Copied); g != 1 {
+		t.Fatalf("Copied = %d, want 1", g)
 	}
 }
 

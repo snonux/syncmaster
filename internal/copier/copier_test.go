@@ -151,6 +151,39 @@ func TestCopyTreeSkipExistingName(t *testing.T) {
 	}
 }
 
+func TestCopyTreeSkipExistingSize(t *testing.T) {
+	mt := time.Unix(1000, 0)
+	src := newMemSource()
+	src.addFile("/src", "a.jpg", 3, mt, []byte("aaa"))
+	src.addFile("/src", "b.jpg", 5, mt, []byte("bbbbb"))
+	local := fs.NewMem()
+	// a.jpg: same size (3) — should be skipped.
+	local.WriteFileAt("/dst/a.jpg", []byte("xxx"), mt)
+	// b.jpg: different size (2 vs 5) — should be re-copied.
+	local.WriteFileAt("/dst/b.jpg", []byte("yy"), mt)
+	st := stats.New()
+	c := &Copier{
+		Src:   copyWritingSource{src, local},
+		Local: local,
+		Stats: st,
+		Skip:  SkipExistingSize,
+	}
+	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
+		t.Fatalf("CopyTree: %v", err)
+	}
+	if g := st.Get(stats.Skipped); g != 1 {
+		t.Fatalf("Skipped = %d, want 1", g)
+	}
+	if g := st.Get(stats.Copied); g != 1 {
+		t.Fatalf("Copied = %d, want 1", g)
+	}
+	// b.jpg was replaced with new content.
+	got, _ := local.ReadFile("/dst/b.jpg")
+	if string(got) != "bbbbb" {
+		t.Fatalf("b.jpg content = %q, want bbbbb", got)
+	}
+}
+
 func TestCopyTreeSkipUnchangedSizeMtime(t *testing.T) {
 	mt := time.Unix(1000, 0)
 	src := newMemSource()
