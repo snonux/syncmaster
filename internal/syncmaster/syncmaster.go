@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"syncmaster/internal/driver"
 	"syncmaster/internal/fssync"
@@ -30,7 +31,7 @@ type App struct {
 func (a *App) Run(ctx context.Context) error {
 	switch a.Env.Config.Mode {
 	case "help":
-		_, _ = fmt.Fprint(a.Env.Out, Usage)
+		_, _ = fmt.Fprint(a.Env.Out, a.usage())
 		return nil
 	case "selftest":
 		return a.selftest(ctx)
@@ -145,25 +146,50 @@ func (a *App) selftest(ctx context.Context) error {
 	return nil
 }
 
-// Usage is the help text.
-const Usage = `Usage: syncmaster [--allow-missing-gps] [--device NAME] [--verbose] [auto|fujifilm|supernote|selftest|help] [destination]
+// usage builds the help text, enumerating driver modes from the injected
+// registry so adding a driver does not require editing this text. The
+// framework meta-modes (auto/selftest/help) are listed alongside them.
+func (a *App) usage() string {
+	type modeLine struct{ name, desc string }
+	modes := []modeLine{
+		{"auto", "Import from the single supported device currently connected."},
+	}
+	if reg, err := a.drivers(); err == nil {
+		for _, d := range reg.All() {
+			modes = append(modes, modeLine{d.Name(), d.Description()})
+		}
+		// If the registry is not wired, driver modes are silently omitted;
+		// help degrades gracefully rather than failing. Production main
+		// always wires a registry, so this only affects bare App{Env:...}.
+	}
+	modes = append(modes,
+		modeLine{"selftest", "Run go vet/build self-checks."},
+		modeLine{"help", "Print this help."},
+	)
 
-Import files from supported USB devices mounted through GVFS.
-
-Modes:
-  auto       Import from the single supported device currently connected.
-  fujifilm   Copy JPEG, RAW, and video files from a Fuji/Fujifilm camera.
-  supernote  Copy the Supernote Note folder (convert .note to PDF) and the
-             Document folder (KOReader books + .sdr sidecar data).
-  selftest   Run go vet/build self-checks.
-  help       Print this help.
-
-Options:
-  --allow-missing-gps  Import camera images even when no GPS coordinates match.
-  --device NAME        Select a specific device when multiple are connected.
-  --verbose            Print verbose progress.
-
-Environment overrides:
-  FUJIFILM_DEST, FUJIFILM_RAW_DEST, GPX_DIR, SUPERNOTE_DEST,
-  CONVERT_PARALLELISM, GVFS_ROOT
-`
+	names := make([]string, len(modes))
+	for i, m := range modes {
+		names[i] = m.name
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Usage: syncmaster [--allow-missing-gps] [--device NAME] [--io-timeout DURATION] [--verbose] [%s] [destination]\n\n",
+		strings.Join(names, "|"))
+	b.WriteString("Import files from supported USB devices mounted through GVFS.\n\n")
+	b.WriteString("Modes:\n")
+	for _, m := range modes {
+		fmt.Fprintf(&b, "  %-10s %s\n", m.name, m.desc)
+	}
+	b.WriteString("\nOptions:\n")
+	for _, o := range [][2]string{
+		{"--allow-missing-gps", "Import camera images even when no GPS coordinates match."},
+		{"--device NAME", "Select a specific device when multiple are connected."},
+		{"--io-timeout DURATION", "Per-operation timeout for external tools (gio/exiftool/supernote-tool); 0 uses IO_TIMEOUT env / default."},
+		{"--verbose", "Print verbose progress."},
+	} {
+		fmt.Fprintf(&b, "  %-23s %s\n", o[0], o[1])
+	}
+	b.WriteString("\nEnvironment overrides:\n")
+	b.WriteString("  FUJIFILM_DEST, FUJIFILM_RAW_DEST, GPX_DIR, SUPERNOTE_DEST,\n")
+	b.WriteString("  CONVERT_PARALLELISM, GVFS_ROOT, IO_TIMEOUT\n")
+	return b.String()
+}

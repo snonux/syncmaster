@@ -21,7 +21,7 @@ const (
 
 // Config is the full runtime configuration.
 type Config struct {
-	Mode            string // auto|fujifilm|supernote|selftest|help
+	Mode            string // auto | <driver name> | selftest | help (driver names resolved from the registry)
 	DestOverride    string // positional destination arg
 	Device          string // -device selector
 	AllowMissingGPS bool
@@ -86,12 +86,18 @@ func Defaults(home string, uid int) Config {
 	}
 }
 
-// Validate reports the first configuration problem.
+// Validate reports the first configuration problem. Driver-name modes
+// (e.g. "fujifilm", "supernote") are NOT validated here: they are resolved
+// against the driver registry at dispatch time, so adding a driver does not
+// require editing this switch. Only the framework meta-modes are known here.
 func (c Config) Validate() error {
 	switch c.Mode {
-	case "auto", "fujifilm", "supernote", "selftest", "help":
+	case "auto", "help", "selftest":
+		// framework meta-modes handled by the orchestrator
+	case "":
+		return fmt.Errorf("mode must be set")
 	default:
-		return fmt.Errorf("unknown mode %q", c.Mode)
+		// a driver name; validated against the registry in App.Run
 	}
 	if c.ConvertParallelism < 1 {
 		return fmt.Errorf("convert parallelism must be >= 1")

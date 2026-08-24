@@ -13,7 +13,8 @@ type fakeDriver struct {
 	synced  []Device
 }
 
-func (f *fakeDriver) Name() string { return f.name }
+func (f *fakeDriver) Name() string        { return f.name }
+func (f *fakeDriver) Description() string { return "fake driver for tests" }
 func (f *fakeDriver) Detect(context.Context, *Env) ([]Device, error) {
 	return f.devices, nil
 }

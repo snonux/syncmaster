@@ -24,7 +24,8 @@ type fakeDriver struct {
 	synced  []driver.Device
 }
 
-func (f *fakeDriver) Name() string { return f.name }
+func (f *fakeDriver) Name() string        { return f.name }
+func (f *fakeDriver) Description() string { return "fake driver for tests" }
 func (f *fakeDriver) Detect(context.Context, *driver.Env) ([]driver.Device, error) {
 	f.detect++
 	return f.devices, nil
@@ -39,7 +40,8 @@ func (f *fakeDriver) Sync(_ context.Context, dev driver.Device, env *driver.Env)
 // aborts a run when the context is cancelled.
 type blockingDriver struct{ name string }
 
-func (b blockingDriver) Name() string { return b.name }
+func (b blockingDriver) Name() string        { return b.name }
+func (b blockingDriver) Description() string { return "blocking driver for tests" }
 func (b blockingDriver) Detect(context.Context, *driver.Env) ([]driver.Device, error) {
 	return []driver.Device{{Driver: b.name, Label: "block"}}, nil
 }
@@ -175,6 +177,7 @@ func TestRunMissingRegistry(t *testing.T) {
 
 func TestRunHelp(t *testing.T) {
 	app := newApp(stats.New(), config.Config{Mode: "help"})
+	_ = app.Env.Drivers.Register(&fakeDriver{name: "fujifilm", devices: nil})
 	out := new(bytes.Buffer)
 	app.Env.Out = out
 	if err := app.Run(context.Background()); err != nil {
@@ -182,6 +185,16 @@ func TestRunHelp(t *testing.T) {
 	}
 	if out.Len() == 0 {
 		t.Fatal("help should print usage")
+	}
+	got := out.String()
+	if !strings.Contains(got, "|fujifilm|") {
+		t.Fatalf("usage synopsis should list registered driver names, got:\n%s", got)
+	}
+	if !strings.Contains(got, "fake driver for tests") {
+		t.Fatalf("usage should include the driver Description(), got:\n%s", got)
+	}
+	if !strings.Contains(got, "--io-timeout") {
+		t.Fatalf("usage should document --io-timeout, got:\n%s", got)
 	}
 }
 

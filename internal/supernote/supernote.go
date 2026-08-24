@@ -21,6 +21,11 @@ var _ driver.Driver = (*Driver)(nil)
 // Name returns the driver name.
 func (Driver) Name() string { return "supernote" }
 
+// Description returns the human-readable summary shown in usage/help.
+func (Driver) Description() string {
+	return "Copy the Supernote Note folder (convert .note to PDF) and the Document folder (KOReader books + .sdr sidecar data)."
+}
+
 // Detect finds reachable Supernote MTP mounts, preferring "Internal shared
 // storage" as the source.
 func (Driver) Detect(ctx context.Context, env *driver.Env) ([]driver.Device, error) {

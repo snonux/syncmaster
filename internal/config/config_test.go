@@ -85,7 +85,9 @@ func TestValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{"ok", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, false},
-		{"bad mode", Config{Mode: "nope", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, true},
+		{"driver mode accepted at validate", Config{Mode: "fujifilm", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, false},
+		{"typo driver mode deferred", Config{Mode: "supernot", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, false},
+		{"empty mode", Config{Mode: "", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, true},
 		{"low parallelism", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 0, IOTimeout: DefaultIOTimeout}, true},
 		{"empty gvfs", Config{Mode: "auto", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, true},
 		{"zero io timeout", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1}, true},

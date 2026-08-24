@@ -27,7 +27,7 @@ package and registering it in a single place.
 
 ## Usage
 
-    syncmaster [auto|fujifilm|supernote|selftest|help] [destination]
+    syncmaster [auto|<driver>|selftest|help] [destination]   # driver modes come from the registry
     syncmaster -version
     syncmaster -verbose                   # print verbose progress
     syncmaster --allow-missing-gps        # import images even without GPS

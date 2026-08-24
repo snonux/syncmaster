@@ -61,9 +61,10 @@ type Env struct {
 }
 
 // Driver discovers devices and syncs from one. Implement this + Register to
-// add a sync feature.
+// add a sync feature. Description is shown in the help/usage text.
 type Driver interface {
 	Name() string
+	Description() string
 	Detect(ctx context.Context, env *Env) ([]Device, error)
 	Sync(ctx context.Context, dev Device, env *Env) error
 }
