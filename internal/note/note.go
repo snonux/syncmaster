@@ -155,6 +155,8 @@ func (c *Convert) runWorkers(ctx context.Context, local fs.FS, conv Converter, j
 		logMu.Unlock()
 	}
 
+	ce := &convertEnv{local: local, conv: conv, tctx: tctx, counter: &atomic.Int64{}, log: log, errLog: errLog}
+
 	n := c.Workers
 	if n < 1 {
 		n = 1
@@ -165,40 +167,12 @@ func (c *Convert) runWorkers(ctx context.Context, local fs.FS, conv Converter, j
 
 	work := make(chan job, len(jobs))
 	var wg sync.WaitGroup
-	var counter atomic.Int64
-
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for j := range work {
-				if err := ctx.Err(); err != nil {
-					tctx.Env.Stats.Inc(stats.Failed, 1)
-					continue
-				}
-				tmp := fmt.Sprintf("%s.tmp.%d", j.pdf, counter.Add(1))
-				if err := conv.Convert(ctx, j.note, tmp); err != nil {
-					_ = local.Remove(tmp)
-					errLog("failed to convert: %s: %v", j.note, err)
-					tctx.Env.Stats.Inc(stats.Failed, 1)
-					continue
-				}
-				if err := local.Rename(tmp, j.pdf); err != nil {
-					_ = local.Remove(tmp)
-					tctx.Env.Stats.Inc(stats.Failed, 1)
-					continue
-				}
-				ne, err := local.Stat(j.note)
-				if err != nil {
-					tctx.Env.Stats.Inc(stats.Failed, 1)
-					continue
-				}
-				if err := local.WriteFile(j.meta, []byte(signature(ne.Size, ne.ModTime.Unix())), 0o644); err != nil {
-					tctx.Env.Stats.Inc(stats.Failed, 1)
-					continue
-				}
-				log("convert: %s -> %s", j.note, j.pdf)
-				tctx.Env.Stats.Inc(stats.Converted, 1)
+				c.convertOne(ctx, ce, j)
 			}
 		}()
 	}
@@ -216,6 +190,50 @@ func (c *Convert) runWorkers(ctx context.Context, local fs.FS, conv Converter, j
 	}
 	close(work)
 	wg.Wait()
+}
+
+// convertEnv bundles the per-worker dependencies handed to convertOne so its
+// signature stays small.
+type convertEnv struct {
+	local   fs.FS
+	conv    Converter
+	tctx    *driver.TransformCtx
+	counter *atomic.Int64
+	log     func(string, ...any)
+	errLog  func(string, ...any)
+}
+
+// convertOne converts a single job's .note to PDF and records the outcome.
+// A failure increments stats.Failed and returns; only a fully successful
+// convert+rename+meta increments stats.Converted.
+func (c *Convert) convertOne(ctx context.Context, ce *convertEnv, j job) {
+	if err := ctx.Err(); err != nil {
+		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		return
+	}
+	tmp := fmt.Sprintf("%s.tmp.%d", j.pdf, ce.counter.Add(1))
+	if err := ce.conv.Convert(ctx, j.note, tmp); err != nil {
+		_ = ce.local.Remove(tmp)
+		ce.errLog("failed to convert: %s: %v", j.note, err)
+		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		return
+	}
+	if err := ce.local.Rename(tmp, j.pdf); err != nil {
+		_ = ce.local.Remove(tmp)
+		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		return
+	}
+	ne, err := ce.local.Stat(j.note)
+	if err != nil {
+		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		return
+	}
+	if err := ce.local.WriteFile(j.meta, []byte(signature(ne.Size, ne.ModTime.Unix())), 0o644); err != nil {
+		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		return
+	}
+	ce.log("convert: %s -> %s", j.note, j.pdf)
+	ce.tctx.Env.Stats.Inc(stats.Converted, 1)
 }
 
 // toolConverter calls supernote-tool to convert a .note to a PDF.

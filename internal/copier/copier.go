@@ -90,48 +90,57 @@ func (c *Copier) copyDir(ctx context.Context, srcDir, dstDir, rel string) error 
 			}
 			continue
 		}
-
-		destRel, include := e.Name, true
-		if c.Resolve != nil {
-			destRel, include = c.Resolve(e)
-		}
-		if !include {
-			continue
-		}
-		c.Stats.Inc(stats.Found, 1)
-
-		destPath := joinPath(dstDir, destRel)
-		if err := c.Local.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-			return fmt.Errorf("mkdir parent %s: %w", filepath.Dir(destPath), err)
-		}
-
-		skip, err := c.applySkip(ctx, e, destPath)
-		if err != nil {
+		if err := c.copyOne(ctx, e, srcPath, dstDir); err != nil {
 			return err
 		}
-		if skip {
-			c.logf("skip existing: %s", e.RelPath)
-			c.Stats.Inc(stats.Skipped, 1)
-			continue
-		}
+	}
+	return nil
+}
 
-		// Replace any existing destination file before copying.
-		if _, statErr := c.Local.Stat(destPath); statErr == nil {
-			if err := c.Local.Remove(destPath); err != nil {
-				return fmt.Errorf("remove %s: %w", destPath, err)
-			}
-		}
+// copyOne handles a single non-directory entry: resolve its destination name,
+// apply the skip policy, replace any existing file, then copy. A copy failure
+// is counted as stats.Failed and returns nil so the parent loop continues.
+func (c *Copier) copyOne(ctx context.Context, e Entry, srcPath, dstDir string) error {
+	destRel, include := e.Name, true
+	if c.Resolve != nil {
+		destRel, include = c.Resolve(e)
+	}
+	if !include {
+		return nil
+	}
+	c.Stats.Inc(stats.Found, 1)
 
-		c.logf("copy: %s -> %s", e.RelPath, destPath)
-		if err := c.Src.Copy(ctx, srcPath, destPath); err != nil {
-			c.Stats.Inc(stats.Failed, 1)
-			c.logf("copy failed: %s: %v", e.RelPath, err)
-			continue
+	destPath := joinPath(dstDir, destRel)
+	if err := c.Local.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return fmt.Errorf("mkdir parent %s: %w", filepath.Dir(destPath), err)
+	}
+
+	skip, err := c.applySkip(ctx, e, destPath)
+	if err != nil {
+		return err
+	}
+	if skip {
+		c.logf("skip existing: %s", e.RelPath)
+		c.Stats.Inc(stats.Skipped, 1)
+		return nil
+	}
+
+	// Replace any existing destination file before copying.
+	if _, statErr := c.Local.Stat(destPath); statErr == nil {
+		if err := c.Local.Remove(destPath); err != nil {
+			return fmt.Errorf("remove %s: %w", destPath, err)
 		}
-		c.Stats.Inc(stats.Copied, 1)
-		if c.OnCopied != nil {
-			c.OnCopied(destPath, e)
-		}
+	}
+
+	c.logf("copy: %s -> %s", e.RelPath, destPath)
+	if err := c.Src.Copy(ctx, srcPath, destPath); err != nil {
+		c.Stats.Inc(stats.Failed, 1)
+		c.logf("copy failed: %s: %v", e.RelPath, err)
+		return nil
+	}
+	c.Stats.Inc(stats.Copied, 1)
+	if c.OnCopied != nil {
+		c.OnCopied(destPath, e)
 	}
 	return nil
 }

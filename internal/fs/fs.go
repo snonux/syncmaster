@@ -293,9 +293,25 @@ func (m *Mem) WalkDir(root string, fn func(path string, e Entry) error) error {
 	}
 	m.mu.Unlock()
 
-	cleanRoot := filepath.Clean(root)
+	all := m.entriesUnder(filepath.Clean(root), paths)
+	keys := make([]string, 0, len(all))
+	for k := range all {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := fn(k, all[k]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// entriesUnder returns the entries at/under cleanRoot plus the intermediate
+// directories needed to walk down to them, keyed by path. Root is included
+// first.
+func (m *Mem) entriesUnder(cleanRoot string, paths []string) map[string]Entry {
 	all := map[string]Entry{}
-	// Root first.
 	all[cleanRoot] = Entry{Name: filepath.Base(cleanRoot), IsDir: true}
 	for _, p := range paths {
 		if p != cleanRoot && !strings.HasPrefix(p, cleanRoot+string(filepath.Separator)) {
@@ -316,15 +332,5 @@ func (m *Mem) WalkDir(root string, fn func(path string, e Entry) error) error {
 			}
 		}
 	}
-	keys := make([]string, 0, len(all))
-	for k := range all {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if err := fn(k, all[k]); err != nil {
-			return err
-		}
-	}
-	return nil
+	return all
 }
