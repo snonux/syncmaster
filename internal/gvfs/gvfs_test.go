@@ -3,6 +3,7 @@ package gvfs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -109,6 +110,17 @@ func TestExistsDistinguishesErrors(t *testing.T) {
 	cancel()
 	if ok, err := g.Exists(ctx, "/x"); err == nil || ok {
 		t.Fatalf("cancelled: ok=%v err=%v", ok, err)
+	}
+
+	// per-call timeout (DeadlineExceeded) is NOT misclassified as unreachable:
+	// Exists must surface it as a real error so a hung gio doesn't drop the device.
+	f = shell.NewFake()
+	f.Register("gio", func(context.Context, []string) ([]byte, error) {
+		return nil, fmt.Errorf("gio info /x: %w", context.DeadlineExceeded)
+	})
+	g = &Gio{Runner: f}
+	if ok, err := g.Exists(context.Background(), "/x"); ok || err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout: ok=%v err=%v", ok, err)
 	}
 }
 

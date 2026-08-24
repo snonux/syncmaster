@@ -7,11 +7,16 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Defaults for the supported sync modes.
 const (
 	DefaultConvertParallelism = 3
+	// DefaultIOTimeout bounds each external command (gio/exiftool/
+	// supernote-tool) so a hung operation cannot block the import until
+	// manual Ctrl+C. Override with IO_TIMEOUT env or --io-timeout.
+	DefaultIOTimeout = 120 * time.Second
 )
 
 // Config is the full runtime configuration.
@@ -28,6 +33,7 @@ type Config struct {
 	GPXDir             string
 	SupernoteDest      string
 	ConvertParallelism int
+	IOTimeout          time.Duration // per-operation bound for external tools
 }
 
 // FromEnv builds a Config from defaults plus environment overrides. getenv
@@ -54,6 +60,13 @@ func FromEnv(getenv func(string) string, home string, uid int) Config {
 			c.ConvertParallelism = n
 		}
 	}
+	if v := getenv("IO_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			c.IOTimeout = d
+		} else if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.IOTimeout = time.Duration(n) * time.Second
+		}
+	}
 	c.Mode = "auto"
 	return c
 }
@@ -69,6 +82,7 @@ func Defaults(home string, uid int) Config {
 		GPXDir:             filepath.Join(home, "Documents", "GPX"),
 		SupernoteDest:      filepath.Join(home, "Documents", "Inbox", "Supernote"),
 		ConvertParallelism: DefaultConvertParallelism,
+		IOTimeout:          DefaultIOTimeout,
 	}
 }
 
@@ -81,6 +95,9 @@ func (c Config) Validate() error {
 	}
 	if c.ConvertParallelism < 1 {
 		return fmt.Errorf("convert parallelism must be >= 1")
+	}
+	if c.IOTimeout <= 0 {
+		return fmt.Errorf("io timeout must be > 0")
 	}
 	if strings.TrimSpace(c.GVFSRoot) == "" {
 		return fmt.Errorf("gvfs root must be set")

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFakeRunAndCalls(t *testing.T) {
@@ -108,5 +109,52 @@ func TestExecRunError(t *testing.T) {
 	if !errors.As(err, new(*exec.ExitError)) {
 		// not fatal: some Go versions wrap differently; just ensure non-nil
 		t.Logf("err = %v (not *exec.ExitError)", err)
+	}
+}
+
+// TestExecRunTimeout verifies that Exec.Timeout bounds a hung command and
+// surfaces a context.DeadlineExceeded error (not a bare *exec.ExitError) so
+// callers that treat a non-zero exit as "unreachable" don't mistake a hang for
+// an absent path.
+func TestExecRunTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a sleeping process")
+	}
+	e := Exec{Timeout: 200 * time.Millisecond}
+	start := time.Now()
+	_, err := e.Run(context.Background(), "sleep", "30")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected timeout error from hung sleep")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected DeadlineExceeded, got %v", err)
+	}
+	if IsExitError(err) {
+		t.Fatalf("timeout error must not be an ExitError so callers can distinguish a hang from an unreachable path; got %v", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("Run took %v; want prompt timeout", elapsed)
+	}
+}
+
+// TestExecRunTimeoutZero verifies that Timeout==0 disables the per-call bound
+// and relies on ctx cancellation (the pre-existing behavior).
+func TestExecRunTimeoutZero(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a sleeping process")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}()
+	start := time.Now()
+	_, err := (Exec{}).Run(ctx, "sleep", "30")
+	if err == nil {
+		t.Fatal("expected error from cancelled sleep")
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatalf("Run took %v; want prompt cancellation", time.Since(start))
 	}
 }

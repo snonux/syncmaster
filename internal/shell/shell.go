@@ -19,18 +19,44 @@ type Runner interface {
 	LookPath(name string) (string, error)
 }
 
-// Exec is the production Runner backed by os/exec.
-type Exec struct{}
+// Exec is the production Runner backed by os/exec. Timeout, when > 0, bounds
+// every external command so a hung gio/exiftool/supernote-tool cannot block
+// the whole import until manual Ctrl+C; zero means rely solely on ctx
+// cancellation. A timed-out command is killed (its *exec.ExitError is
+// suppressed) and Run returns a context.DeadlineExceeded error so callers that
+// treat a non-zero exit as "unreachable" (see gvfs.Exists) do not mistake a
+// hang for an absent path.
+type Exec struct {
+	Timeout time.Duration
+}
 
 var _ Runner = (*Exec)(nil)
 
 // Run executes name with args, capturing stdout. A non-zero exit is reported
 // as an *exec.ExitError. On context cancellation the process is killed
-// (SIGKILL); WaitDelay ensures Run never hangs on inherited pipes.
-func (Exec) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+// (SIGKILL); WaitDelay ensures Run never hangs on inherited pipes. When
+// e.Timeout > 0 the command is additionally bounded by a per-call deadline.
+func (e Exec) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if e.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.Timeout)
+		defer cancel()
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = 2 * time.Second
-	return cmd.Output()
+	out, err := cmd.Output()
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		// A deadline (ours or an inherited one) fired and killed the process.
+		// Surface the timeout directly; wrapping the *exec.ExitError would let
+		// IsExitError misclassify a hang as an unreachable path. Only name the
+		// per-call duration when we actually set it, so we don't attribute a
+		// parent deadline to our bound.
+		if e.Timeout > 0 {
+			return out, fmt.Errorf("command %q timed out after %s: %w", name, e.Timeout, context.DeadlineExceeded)
+		}
+		return out, fmt.Errorf("command %q exceeded its deadline: %w", name, context.DeadlineExceeded)
+	}
+	return out, err
 }
 
 // LookPath reports whether name is available on PATH.

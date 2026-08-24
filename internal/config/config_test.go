@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func env(map_ map[string]string) func(string) string {
 	return func(k string) string { return map_[k] }
@@ -16,6 +19,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if c.ConvertParallelism != 3 {
 		t.Fatalf("parallelism = %d", c.ConvertParallelism)
+	}
+	if c.IOTimeout != DefaultIOTimeout {
+		t.Fatalf("IOTimeout = %v, want default %v", c.IOTimeout, DefaultIOTimeout)
 	}
 }
 
@@ -39,6 +45,28 @@ func TestFromEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestFromEnvIOTimeout(t *testing.T) {
+	// duration string
+	c := FromEnv(env(map[string]string{"IO_TIMEOUT": "90s"}), "/h", 1)
+	if c.IOTimeout != 90*time.Second {
+		t.Fatalf("IOTimeout = %v", c.IOTimeout)
+	}
+	// bare integer seconds
+	c = FromEnv(env(map[string]string{"IO_TIMEOUT": "45"}), "/h", 1)
+	if c.IOTimeout != 45*time.Second {
+		t.Fatalf("IOTimeout = %v", c.IOTimeout)
+	}
+	// bad value falls back to default
+	c = FromEnv(env(map[string]string{"IO_TIMEOUT": "oops"}), "/h", 1)
+	if c.IOTimeout != DefaultIOTimeout {
+		t.Fatalf("IOTimeout = %v, want default", c.IOTimeout)
+	}
+	c = FromEnv(env(map[string]string{"IO_TIMEOUT": "0"}), "/h", 1)
+	if c.IOTimeout != DefaultIOTimeout {
+		t.Fatalf("IOTimeout = %v, want default for 0", c.IOTimeout)
+	}
+}
+
 func TestFromEnvIgnoresBadParallelism(t *testing.T) {
 	c := FromEnv(env(map[string]string{"CONVERT_PARALLELISM": "oops"}), "/h", 1)
 	if c.ConvertParallelism != 3 {
@@ -56,10 +84,11 @@ func TestValidate(t *testing.T) {
 		cfg     Config
 		wantErr bool
 	}{
-		{"ok", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1}, false},
-		{"bad mode", Config{Mode: "nope", GVFSRoot: "/x", ConvertParallelism: 1}, true},
-		{"low parallelism", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 0}, true},
-		{"empty gvfs", Config{Mode: "auto", ConvertParallelism: 1}, true},
+		{"ok", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, false},
+		{"bad mode", Config{Mode: "nope", GVFSRoot: "/x", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, true},
+		{"low parallelism", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 0, IOTimeout: DefaultIOTimeout}, true},
+		{"empty gvfs", Config{Mode: "auto", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, true},
+		{"zero io timeout", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

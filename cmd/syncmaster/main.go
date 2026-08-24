@@ -38,6 +38,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	verbose := fsFlags.Bool("verbose", false, "print verbose progress")
 	allowMissingGPS := fsFlags.Bool("allow-missing-gps", false, "import images even without GPS")
 	device := fsFlags.String("device", "", "select a specific device when multiple are connected")
+	ioTimeout := fsFlags.Duration("io-timeout", 0, "per-operation timeout for external tools (gio/exiftool/supernote-tool); 0 uses IO_TIMEOUT env / default")
 
 	if err := fsFlags.Parse(args); err != nil {
 		return 2
@@ -64,20 +65,23 @@ func run(args []string, stdout, stderr *os.File) int {
 	cfg.AllowMissingGPS = *allowMissingGPS
 	cfg.Verbose = *verbose
 	cfg.Device = *device
+	if *ioTimeout != 0 {
+		cfg.IOTimeout = *ioTimeout
+	}
 	if err := cfg.Validate(); err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 2
 	}
 
 	st := stats.New()
-	gio := &gvfs.Gio{Runner: shell.Exec{}, Root: cfg.GVFSRoot}
+	gio := &gvfs.Gio{Runner: shell.Exec{Timeout: cfg.IOTimeout}, Root: cfg.GVFSRoot}
 	env := &driver.Env{
 		Config: &cfg,
 		Source: gio,
 		Mounts: gio,
 		Local:  fs.OS{},
 		Clock:  clock.Real{},
-		Runner: shell.Exec{},
+		Runner: shell.Exec{Timeout: cfg.IOTimeout},
 		Stats:  st,
 		Out:    stdout,
 		Err:    stderr,
