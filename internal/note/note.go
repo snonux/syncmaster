@@ -13,10 +13,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"syncmaster/internal/driver"
-	"syncmaster/internal/fs"
-	"syncmaster/internal/shell"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/fs"
+	"github.com/snonux/syncmaster/internal/shell"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 // Converter converts a single .note file to an output PDF path.

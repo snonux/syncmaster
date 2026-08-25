@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"syncmaster/internal/driver"
-	"syncmaster/internal/fs"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/fs"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 // recordingRunner records every Run call's args and returns configurable

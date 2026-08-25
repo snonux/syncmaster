@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
-	"syncmaster/internal/clock"
-	"syncmaster/internal/config"
-	"syncmaster/internal/copier"
-	"syncmaster/internal/fs"
-	"syncmaster/internal/media"
-	"syncmaster/internal/shell"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal/clock"
+	"github.com/snonux/syncmaster/internal/config"
+	"github.com/snonux/syncmaster/internal/copier"
+	"github.com/snonux/syncmaster/internal/fs"
+	"github.com/snonux/syncmaster/internal/media"
+	"github.com/snonux/syncmaster/internal/shell"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 // Device is a discovered, connected source a driver can sync from.

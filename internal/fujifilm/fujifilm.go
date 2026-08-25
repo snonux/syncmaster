@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strconv"
 
-	"syncmaster/internal/copier"
-	"syncmaster/internal/driver"
-	"syncmaster/internal/gpx"
-	"syncmaster/internal/media"
+	"github.com/snonux/syncmaster/internal/copier"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/gpx"
+	"github.com/snonux/syncmaster/internal/media"
 )
 
 // Driver syncs from a Fujifilm camera mounted via GVFS (gphoto2). Media,

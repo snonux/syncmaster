@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"syncmaster/internal/clock"
-	"syncmaster/internal/config"
-	"syncmaster/internal/copier"
-	"syncmaster/internal/driver"
-	"syncmaster/internal/fs"
-	"syncmaster/internal/note"
-	"syncmaster/internal/shell"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal/clock"
+	"github.com/snonux/syncmaster/internal/config"
+	"github.com/snonux/syncmaster/internal/copier"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/fs"
+	"github.com/snonux/syncmaster/internal/note"
+	"github.com/snonux/syncmaster/internal/shell"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 type fakeTree struct {

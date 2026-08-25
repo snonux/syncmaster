@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"syncmaster/internal/driver"
-	"syncmaster/internal/fssync"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/fssync"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 // Exit-code sentinels, mapped to os.Exit codes by main.

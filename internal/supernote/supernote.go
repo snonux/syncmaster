@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"syncmaster/internal/copier"
-	"syncmaster/internal/driver"
-	"syncmaster/internal/note"
+	"github.com/snonux/syncmaster/internal/copier"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/note"
 )
 
 // Driver syncs from a Supernote Nomad mounted via GVFS (MTP).

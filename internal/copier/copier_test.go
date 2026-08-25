@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"syncmaster/internal/fs"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal/fs"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 // memSource is a fake copier.Source backed by an in-memory tree.

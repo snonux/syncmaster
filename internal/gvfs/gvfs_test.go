@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"syncmaster/internal/shell"
+	"github.com/snonux/syncmaster/internal/shell"
 )
 
 func TestParseList(t *testing.T) {

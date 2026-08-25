@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"syncmaster/internal/syncmaster"
+	"github.com/snonux/syncmaster/internal/syncmaster"
 )
 
 func main() {

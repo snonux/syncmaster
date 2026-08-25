@@ -14,16 +14,16 @@ import (
 	"os/signal"
 	"syscall"
 
-	"syncmaster/internal"
-	"syncmaster/internal/clock"
-	"syncmaster/internal/config"
-	"syncmaster/internal/driver"
-	"syncmaster/internal/drivers"
-	"syncmaster/internal/fs"
-	"syncmaster/internal/gvfs"
-	"syncmaster/internal/media"
-	"syncmaster/internal/shell"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal"
+	"github.com/snonux/syncmaster/internal/clock"
+	"github.com/snonux/syncmaster/internal/config"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/drivers"
+	"github.com/snonux/syncmaster/internal/fs"
+	"github.com/snonux/syncmaster/internal/gvfs"
+	"github.com/snonux/syncmaster/internal/media"
+	"github.com/snonux/syncmaster/internal/shell"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 // Main is the program entry point: it parses flags, builds the config and

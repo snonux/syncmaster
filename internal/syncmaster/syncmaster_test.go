@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"syncmaster/internal/config"
-	"syncmaster/internal/driver"
-	"syncmaster/internal/fs"
-	"syncmaster/internal/shell"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal/config"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/fs"
+	"github.com/snonux/syncmaster/internal/shell"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 // fakeDriver is a minimal driver for orchestrator tests.

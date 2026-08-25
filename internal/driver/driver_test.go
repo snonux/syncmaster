@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"syncmaster/internal/fs"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal/fs"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 type fakeDriver struct {

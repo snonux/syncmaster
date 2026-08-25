@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"time"
 
-	"syncmaster/internal/clock"
-	"syncmaster/internal/fs"
-	"syncmaster/internal/stats"
+	"github.com/snonux/syncmaster/internal/clock"
+	"github.com/snonux/syncmaster/internal/fs"
+	"github.com/snonux/syncmaster/internal/stats"
 )
 
 // Entry is a file or directory in a source tree. Name is the base name;

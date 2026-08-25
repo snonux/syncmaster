@@ -1,4 +1,4 @@
-module syncmaster
+module github.com/snonux/syncmaster
 
 go 1.26.0
 

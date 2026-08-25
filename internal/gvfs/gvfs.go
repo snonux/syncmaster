@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"syncmaster/internal/copier"
-	"syncmaster/internal/driver"
-	"syncmaster/internal/shell"
+	"github.com/snonux/syncmaster/internal/copier"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/shell"
 )
 
 // Gio is a GVFS/gio client. ReadDir lists the GVFS root directory; it defaults

@@ -5,9 +5,9 @@
 package drivers
 
 import (
-	"syncmaster/internal/driver"
-	"syncmaster/internal/fujifilm"
-	"syncmaster/internal/supernote"
+	"github.com/snonux/syncmaster/internal/driver"
+	"github.com/snonux/syncmaster/internal/fujifilm"
+	"github.com/snonux/syncmaster/internal/supernote"
 )
 
 // RegisterAll registers every built-in driver on r. Call once at startup with
