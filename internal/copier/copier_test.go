@@ -354,6 +354,81 @@ func TestCopyTreeCopyFailureIncrementsFailed(t *testing.T) {
 	}
 }
 
+// TestCopyTreePreservesBackupOnCopyFailure reproduces z41: when a file changed
+// on the source (skip=false) and the new copy fails, the previous backup at
+// the dest must survive — the copier copies to a temp and renames over the
+// dest only on success, instead of removing the dest first.
+func TestCopyTreePreservesBackupOnCopyFailure(t *testing.T) {
+	src := newMemSource()
+	src.addFile("/src", "a.note", 9, time.Unix(2000, 0), []byte("newcontent"))
+	local := fs.NewMem()
+	_ = local.WriteFile(context.Background(), "/dst/a.note", []byte("OLDBACKUP"), 0o644)
+	st := stats.New()
+	c := &Tree{Src: &failingSource{src}, Local: local, Stats: st, Skip: SkipUnchangedSizeMtime}
+	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
+		t.Fatalf("CopyTree: %v", err)
+	}
+	if g := st.Get(stats.Failed); g != 1 {
+		t.Fatalf("Failed = %d, want 1", g)
+	}
+	if g := st.Get(stats.Copied); g != 0 {
+		t.Fatalf("Copied = %d, want 0", g)
+	}
+	// The previous backup must still be intact.
+	got, err := local.ReadFile(context.Background(), "/dst/a.note")
+	if err != nil {
+		t.Fatalf("previous backup lost: %v", err)
+	}
+	if string(got) != "OLDBACKUP" {
+		t.Fatalf("dest = %q, want OLDBACKUP", got)
+	}
+	// The temp must have been cleaned up.
+	if _, err := local.Stat(context.Background(), "/dst/a.note"+copyTmpSuffix); err == nil {
+		t.Fatal("stale temp should be removed after a failed copy")
+	}
+}
+
+// renameFailFS wraps an fs.Store but makes Rename always fail, to exercise the
+// install-failure branch of copyOne.
+type renameFailFS struct {
+	fs.Store
+	err error
+}
+
+func (r renameFailFS) Rename(context.Context, string, string) error { return r.err }
+
+// TestCopyTreePreservesBackupOnRenameFailure verifies that when the copy
+// succeeds but the atomic install (rename) fails, the previous backup survives
+// and the temp is cleaned up.
+func TestCopyTreePreservesBackupOnRenameFailure(t *testing.T) {
+	src := newMemSource()
+	src.addFile("/src", "a.txt", 3, time.Unix(2000, 0), []byte("new"))
+	mem := fs.NewMem()
+	_ = mem.WriteFile(context.Background(), "/dst/a.txt", []byte("OLDBACKUP"), 0o644)
+	st := stats.New()
+	local := renameFailFS{Store: mem, err: errors.New("rename boom")}
+	c := &Tree{Src: copyWritingSource{src, mem}, Local: local, Stats: st, Skip: SkipUnchangedSizeMtime}
+	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
+		t.Fatalf("CopyTree: %v", err)
+	}
+	if g := st.Get(stats.Failed); g != 1 {
+		t.Fatalf("Failed = %d, want 1", g)
+	}
+	if g := st.Get(stats.Copied); g != 0 {
+		t.Fatalf("Copied = %d, want 0", g)
+	}
+	got, err := mem.ReadFile(context.Background(), "/dst/a.txt")
+	if err != nil {
+		t.Fatalf("previous backup lost: %v", err)
+	}
+	if string(got) != "OLDBACKUP" {
+		t.Fatalf("dest = %q, want OLDBACKUP", got)
+	}
+	if _, err := mem.Stat(context.Background(), "/dst/a.txt"+copyTmpSuffix); err == nil {
+		t.Fatal("stale temp should be removed after a failed rename")
+	}
+}
+
 func TestCopyTreeContextCancel(t *testing.T) {
 	src := buildTree(t)
 	local := fs.NewMem()

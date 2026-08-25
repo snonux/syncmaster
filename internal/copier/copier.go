@@ -57,6 +57,11 @@ type SkipPolicy func(sc SkipCtx) (bool, error)
 // source-relative path (e.RelPath), mirroring the source tree structure.
 type DestResolver func(e Entry) (root, relPath string, include bool)
 
+// copyTmpSuffix is the temp-file suffix copyOne copies into before renaming
+// over the dest, so a failed/cancelled copy never destroys the previous
+// backup at the dest path.
+const copyTmpSuffix = ".syncmaster.tmp"
+
 // Tree performs a recursive copy from a Source to a local root.
 type Tree struct {
 	Src      Source
@@ -126,9 +131,10 @@ func (c *Tree) copyDir(ctx context.Context, srcDir, rel, dstRoot string) error {
 }
 
 // copyOne handles a single non-directory entry: resolve its destination root
-// and relative path, apply the skip policy, replace any existing file, then
-// copy. A copy failure is counted as stats.Failed and returns nil so the
-// parent loop continues.
+// and relative path, apply the skip policy, then copy to a temp in the dest
+// directory and atomically rename it over the dest on success (preserving the
+// previous backup on failure). A copy or rename failure is counted as
+// stats.Failed and returns nil so the parent loop continues.
 func (c *Tree) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) error {
 	root, relPath, include := "", e.RelPath, true
 	if c.Resolve != nil {
@@ -160,17 +166,24 @@ func (c *Tree) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) er
 		return nil
 	}
 
-	// Replace any existing destination file before copying.
-	if _, statErr := c.Local.Stat(ctx, destPath); statErr == nil {
-		if err := c.Local.Remove(ctx, destPath); err != nil {
-			return fmt.Errorf("remove %s: %w", destPath, err)
-		}
-	}
+	// Copy to a temp path in the same directory, then atomically rename over
+	// the dest on success. This preserves the previous backup at destPath when
+	// the copy fails or the run is cancelled — removing the dest first would
+	// lose it (z41). Any stale temp from a prior aborted copy is cleaned up.
+	tmpPath := destPath + copyTmpSuffix
+	_ = c.Local.Remove(ctx, tmpPath)
 
 	c.logf("copy: %s -> %s", e.RelPath, destPath)
-	if err := c.Src.Copy(ctx, srcPath, destPath); err != nil {
+	if err := c.Src.Copy(ctx, srcPath, tmpPath); err != nil {
+		_ = c.Local.Remove(ctx, tmpPath)
 		c.Stats.Inc(stats.Failed, 1)
 		c.logf("copy failed: %s: %v", e.RelPath, err)
+		return nil
+	}
+	if err := c.Local.Rename(ctx, tmpPath, destPath); err != nil {
+		_ = c.Local.Remove(ctx, tmpPath)
+		c.Stats.Inc(stats.Failed, 1)
+		c.logf("install %s -> %s: %v", tmpPath, destPath, err)
 		return nil
 	}
 	c.Stats.Inc(stats.Copied, 1)
