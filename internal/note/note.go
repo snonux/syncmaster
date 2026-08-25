@@ -37,15 +37,18 @@ func (c *Convert) Name() string { return "note-to-pdf" }
 
 // Apply walks tctx.DestRoot for .note files and converts stale ones.
 func (c *Convert) Apply(ctx context.Context, tctx *driver.TransformCtx) error {
-	if c == nil || tctx == nil || tctx.Env == nil {
+	if c == nil || tctx == nil {
 		return fmt.Errorf("note: nil context")
 	}
-	local := tctx.Env.Local
+	if err := tctx.Resolve(); err != nil {
+		return fmt.Errorf("note: %w", err)
+	}
+	local := tctx.Local
 	root := tctx.DestRoot
 	conv := c.Conv
 	if conv == nil {
 		if _, err := c.Runner.LookPath("supernote-tool"); err != nil {
-			tctx.Env.Stats.Inc(stats.Failed, 1)
+			tctx.Stats.Inc(stats.Failed, 1)
 			return fmt.Errorf("note: supernote-tool not found: %w", err)
 		}
 		conv = toolConverter{c.Runner}
@@ -91,7 +94,7 @@ func (c *Convert) enqueue(ctx context.Context, local fs.FS, root string, tctx *d
 			return err
 		}
 		if pdfCurrent(local, path, pdfPath, metaPath) {
-			tctx.Env.Stats.Inc(stats.ConvertSkipped, 1)
+			tctx.Stats.Inc(stats.ConvertSkipped, 1)
 			return nil
 		}
 		jobs = append(jobs, job{note: path, pdf: pdfPath, meta: metaPath})
@@ -143,19 +146,9 @@ func (c *Convert) runWorkers(ctx context.Context, local fs.FS, conv Converter, j
 	if len(jobs) == 0 {
 		return
 	}
-	var logMu sync.Mutex
-	log := func(format string, args ...any) {
-		logMu.Lock()
-		_, _ = fmt.Fprintf(tctx.Env.Out, format+"\n", args...)
-		logMu.Unlock()
-	}
-	errLog := func(format string, args ...any) {
-		logMu.Lock()
-		_, _ = fmt.Fprintf(tctx.Env.Err, format+"\n", args...)
-		logMu.Unlock()
-	}
-
-	ce := &convertEnv{local: local, conv: conv, tctx: tctx, counter: &atomic.Int64{}, log: log, errLog: errLog}
+	// tctx.Logger is concurrency-safe (WriterLogger serializes writes), so the
+	// N parallel workers can log through it directly without a local mutex.
+	ce := &convertEnv{local: local, conv: conv, tctx: tctx, counter: &atomic.Int64{}}
 
 	n := c.Workers
 	if n < 1 {
@@ -181,7 +174,7 @@ func (c *Convert) runWorkers(ctx context.Context, local fs.FS, conv Converter, j
 		select {
 		case <-ctx.Done():
 			// Drain remaining jobs as failed.
-			tctx.Env.Stats.Inc(stats.Failed, int64(len(jobs)-len(work)))
+			tctx.Stats.Inc(stats.Failed, int64(len(jobs)-len(work)))
 			close(work)
 			wg.Wait()
 			return
@@ -199,8 +192,6 @@ type convertEnv struct {
 	conv    Converter
 	tctx    *driver.TransformCtx
 	counter *atomic.Int64
-	log     func(string, ...any)
-	errLog  func(string, ...any)
 }
 
 // convertOne converts a single job's .note to PDF and records the outcome.
@@ -208,32 +199,32 @@ type convertEnv struct {
 // convert+rename+meta increments stats.Converted.
 func (c *Convert) convertOne(ctx context.Context, ce *convertEnv, j job) {
 	if err := ctx.Err(); err != nil {
-		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		ce.tctx.Stats.Inc(stats.Failed, 1)
 		return
 	}
 	tmp := fmt.Sprintf("%s.tmp.%d", j.pdf, ce.counter.Add(1))
 	if err := ce.conv.Convert(ctx, j.note, tmp); err != nil {
 		_ = ce.local.Remove(tmp)
-		ce.errLog("failed to convert: %s: %v", j.note, err)
-		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		ce.tctx.Logger.Error("failed to convert: %s: %v", j.note, err)
+		ce.tctx.Stats.Inc(stats.Failed, 1)
 		return
 	}
 	if err := ce.local.Rename(tmp, j.pdf); err != nil {
 		_ = ce.local.Remove(tmp)
-		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		ce.tctx.Stats.Inc(stats.Failed, 1)
 		return
 	}
 	ne, err := ce.local.Stat(j.note)
 	if err != nil {
-		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		ce.tctx.Stats.Inc(stats.Failed, 1)
 		return
 	}
 	if err := ce.local.WriteFile(j.meta, []byte(signature(ne.Size, ne.ModTime.Unix())), 0o644); err != nil {
-		ce.tctx.Env.Stats.Inc(stats.Failed, 1)
+		ce.tctx.Stats.Inc(stats.Failed, 1)
 		return
 	}
-	ce.log("convert: %s -> %s", j.note, j.pdf)
-	ce.tctx.Env.Stats.Inc(stats.Converted, 1)
+	ce.tctx.Logger.Info("convert: %s -> %s", j.note, j.pdf)
+	ce.tctx.Stats.Inc(stats.Converted, 1)
 }
 
 // toolConverter calls supernote-tool to convert a .note to a PDF.

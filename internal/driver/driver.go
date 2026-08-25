@@ -76,13 +76,93 @@ type Transform interface {
 	Apply(ctx context.Context, tctx *TransformCtx) error
 }
 
-// TransformCtx is what a transform operates on.
+// Logger is the logging surface transforms use. It replaces reaching into
+// Env.Out/Env.Err, so transforms depend on a focused seam rather than the
+// Env god-bag. Implementations must be safe for concurrent use: transforms
+// like note-to-pdf fan out N workers that all log through the same Logger.
+type Logger interface {
+	Info(format string, args ...any)
+	Error(format string, args ...any)
+}
+
+// WriterLogger is a concurrency-safe Logger backed by an (out, err) writer
+// pair. Each call formats with a trailing newline and writes under a mutex,
+// so multiple goroutines may share one instance.
+type WriterLogger struct {
+	mu  sync.Mutex
+	out io.Writer
+	err io.Writer
+}
+
+// NewWriterLogger wraps an out/err writer pair as a Logger. A nil writer is
+// treated as a no-op sink so a Logger never panics when one stream is unset.
+func NewWriterLogger(out, err io.Writer) *WriterLogger {
+	return &WriterLogger{out: out, err: err}
+}
+
+// Info logs an informational message to the out writer.
+func (l *WriterLogger) Info(format string, args ...any) {
+	l.mu.Lock()
+	if l.out != nil {
+		_, _ = fmt.Fprintf(l.out, format+"\n", args...)
+	}
+	l.mu.Unlock()
+}
+
+// Error logs an error message to the err writer.
+func (l *WriterLogger) Error(format string, args ...any) {
+	l.mu.Lock()
+	if l.err != nil {
+		_, _ = fmt.Fprintf(l.err, format+"\n", args...)
+	}
+	l.mu.Unlock()
+}
+
+// TransformCtx is what a transform operates on. The focused fields Logger,
+// Stats, and Local are the seams transforms should use directly instead of
+// reaching into Env. They are backfilled from Env by Resolve, which each
+// transform calls at its Apply entry, so both direct-Apply tests and the
+// production RunTransforms path are covered. Callers that set the focused
+// fields explicitly bypass the Env reach-through entirely.
 type TransformCtx struct {
 	Env      *Env
-	DestRoot string   // where copied files landed
-	Imported []string // files of interest (e.g. images to geotag)
+	Logger   Logger       // progress + error log (concurrency-safe)
+	Stats    *stats.Stats // shared, concurrency-safe counters
+	Local    fs.FS        // local filesystem (dest side, meta, rollback)
+	DestRoot string       // where copied files landed
+	Imported []string     // files of interest (e.g. images to geotag)
 	Device   Device
 	Scratch  map[string]any // per-run scratch space shared between transforms
+}
+
+// Resolve backfills the focused fields (Logger, Stats, Local) from Env when a
+// caller constructed TransformCtx with only Env set. It is idempotent and lets
+// transforms depend on the focused seams without forcing every test that
+// calls Apply directly to wire a constructor. Callers that set the focused
+// fields explicitly bypass the Env reach-through entirely.
+func (t *TransformCtx) Resolve() error {
+	if t == nil {
+		return fmt.Errorf("driver: nil transform context")
+	}
+	if t.Logger == nil {
+		if t.Env == nil {
+			return fmt.Errorf("driver: transform context has no logger")
+		}
+		t.Logger = NewWriterLogger(t.Env.Out, t.Env.Err)
+	}
+	if t.Stats == nil {
+		if t.Env == nil {
+			return fmt.Errorf("driver: transform context has no stats")
+		}
+		t.Stats = t.Env.Stats
+	}
+	if t.Local == nil {
+		if t.Env == nil {
+			return fmt.Errorf("driver: transform context has no local fs")
+		}
+		t.Local = t.Env.Local
+	}
+	return nil
 }
 
 // RunTransforms applies ts in order over tctx, stopping at the first error

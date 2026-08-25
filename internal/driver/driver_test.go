@@ -1,10 +1,15 @@
 package driver
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+
+	"syncmaster/internal/fs"
+	"syncmaster/internal/stats"
 )
 
 type fakeDriver struct {
@@ -122,5 +127,85 @@ func TestRunTransformsEmptyAndNilTctx(t *testing.T) {
 	}
 	if err := RunTransforms(context.Background(), &TransformCtx{}); err != nil {
 		t.Fatalf("empty: %v", err)
+	}
+}
+
+func TestWriterLoggerFormatsAndRoutes(t *testing.T) {
+	out := new(bytes.Buffer)
+	err := new(bytes.Buffer)
+	l := NewWriterLogger(out, err)
+	l.Info("tagged %d", 3)
+	l.Error("missing: %s", "x.jpg")
+	if got := out.String(); !strings.Contains(got, "tagged 3\n") {
+		t.Fatalf("out = %q", got)
+	}
+	if got := err.String(); !strings.Contains(got, "missing: x.jpg\n") {
+		t.Fatalf("err = %q", got)
+	}
+}
+
+func TestWriterLoggerConcurrentSafe(t *testing.T) {
+	out := new(bytes.Buffer)
+	err := new(bytes.Buffer)
+	l := NewWriterLogger(out, err)
+	const n = 200
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			l.Info("info %d", i)
+			l.Error("err %d", i)
+		}(i)
+	}
+	wg.Wait()
+	// Every Info/Error writes exactly one line; concurrency must not interleave
+	// mid-line, so the total newline count equals 2*n.
+	if got := strings.Count(out.String(), "\n"); got != n {
+		t.Fatalf("out newlines = %d, want %d", got, n)
+	}
+	if got := strings.Count(err.String(), "\n"); got != n {
+		t.Fatalf("err newlines = %d, want %d", got, n)
+	}
+}
+
+func TestTransformCtxResolveBackfillsFromEnv(t *testing.T) {
+	st := stats.New()
+	local := fs.NewMem()
+	tctx := &TransformCtx{Env: &Env{Local: local, Stats: st, Out: new(bytes.Buffer), Err: new(bytes.Buffer)}}
+	if err := tctx.Resolve(); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if tctx.Logger == nil {
+		t.Fatal("Logger should be backfilled")
+	}
+	if tctx.Stats != st {
+		t.Fatal("Stats should be backfilled")
+	}
+	if tctx.Local != local {
+		t.Fatal("Local should be backfilled")
+	}
+	// Resolve is idempotent: a second call keeps the already-set Logger.
+	first := tctx.Logger
+	if err := tctx.Resolve(); err != nil {
+		t.Fatalf("Resolve second: %v", err)
+	}
+	if tctx.Logger != first {
+		t.Fatal("Resolve must not replace an already-set Logger")
+	}
+}
+
+func TestTransformCtxResolveUsesExplicitFieldsWithoutEnv(t *testing.T) {
+	// A caller that wires the focused fields directly must not need Env at all.
+	tctx := &TransformCtx{Logger: NewWriterLogger(new(bytes.Buffer), new(bytes.Buffer)), Stats: stats.New(), Local: fs.NewMem()}
+	if err := tctx.Resolve(); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+}
+
+func TestTransformCtxResolveErrorsWithoutEnvOrFocusedFields(t *testing.T) {
+	tctx := &TransformCtx{} // nothing set
+	if err := tctx.Resolve(); err == nil {
+		t.Fatal("expected error when Logger/Stats/Local and Env are all nil")
 	}
 }
