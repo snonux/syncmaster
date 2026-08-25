@@ -54,10 +54,10 @@ func (c *Convert) Apply(ctx context.Context, tctx *driver.TransformCtx) error {
 		conv = toolConverter{c.Runner}
 	}
 
-	if err := local.MkdirAll(root, 0o755); err != nil {
+	if err := local.MkdirAll(ctx, root, 0o755); err != nil {
 		return fmt.Errorf("note: mkdir %s: %w", root, err)
 	}
-	if err := cleanStaleTemp(local, root); err != nil {
+	if err := cleanStaleTemp(ctx, local, root); err != nil {
 		return fmt.Errorf("note: clean tmp: %w", err)
 	}
 
@@ -77,7 +77,7 @@ type job struct {
 
 func (c *Convert) enqueue(ctx context.Context, local fs.FS, root string, tctx *driver.TransformCtx) ([]job, error) {
 	var jobs []job
-	err := local.WalkDir(root, func(path string, e fs.Entry) error {
+	err := local.WalkDir(ctx, root, func(path string, e fs.Entry) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -90,10 +90,10 @@ func (c *Convert) enqueue(ctx context.Context, local fs.FS, root string, tctx *d
 		rel, _ := filepath.Rel(root, path)
 		pdfPath := changeNoteExt(root, rel)
 		metaPath := pdfPath + ".note-meta"
-		if err := local.MkdirAll(filepath.Dir(pdfPath), 0o755); err != nil {
+		if err := local.MkdirAll(ctx, filepath.Dir(pdfPath), 0o755); err != nil {
 			return err
 		}
-		if pdfCurrent(local, path, pdfPath, metaPath) {
+		if pdfCurrent(ctx, local, path, pdfPath, metaPath) {
 			tctx.Stats.Inc(stats.ConvertSkipped, 1)
 			return nil
 		}
@@ -111,15 +111,15 @@ func changeNoteExt(root, rel string) string {
 	return filepath.Join(root, base+".pdf")
 }
 
-func pdfCurrent(local fs.FS, notePath, pdfPath, metaPath string) bool {
-	if _, err := local.Stat(pdfPath); err != nil {
+func pdfCurrent(ctx context.Context, local fs.FS, notePath, pdfPath, metaPath string) bool {
+	if _, err := local.Stat(ctx, pdfPath); err != nil {
 		return false
 	}
-	meta, err := local.ReadFile(metaPath)
+	meta, err := local.ReadFile(ctx, metaPath)
 	if err != nil {
 		return false
 	}
-	ne, err := local.Stat(notePath)
+	ne, err := local.Stat(ctx, notePath)
 	if err != nil {
 		return false
 	}
@@ -130,13 +130,16 @@ func signature(size int64, mtime int64) string {
 	return fmt.Sprintf("size=%d\nmtime=%d\n", size, mtime)
 }
 
-func cleanStaleTemp(local fs.FS, root string) error {
-	return local.WalkDir(root, func(path string, e fs.Entry) error {
+func cleanStaleTemp(ctx context.Context, local fs.FS, root string) error {
+	return local.WalkDir(ctx, root, func(path string, e fs.Entry) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if e.IsDir {
 			return nil
 		}
 		if strings.Contains(filepath.Base(path), ".pdf.tmp.") {
-			_ = local.Remove(path)
+			_ = local.Remove(ctx, path)
 		}
 		return nil
 	})
@@ -204,22 +207,22 @@ func (c *Convert) convertOne(ctx context.Context, ce *convertEnv, j job) {
 	}
 	tmp := fmt.Sprintf("%s.tmp.%d", j.pdf, ce.counter.Add(1))
 	if err := ce.conv.Convert(ctx, j.note, tmp); err != nil {
-		_ = ce.local.Remove(tmp)
+		_ = ce.local.Remove(ctx, tmp)
 		ce.tctx.Logger.Error("failed to convert: %s: %v", j.note, err)
 		ce.tctx.Stats.Inc(stats.Failed, 1)
 		return
 	}
-	if err := ce.local.Rename(tmp, j.pdf); err != nil {
-		_ = ce.local.Remove(tmp)
+	if err := ce.local.Rename(ctx, tmp, j.pdf); err != nil {
+		_ = ce.local.Remove(ctx, tmp)
 		ce.tctx.Stats.Inc(stats.Failed, 1)
 		return
 	}
-	ne, err := ce.local.Stat(j.note)
+	ne, err := ce.local.Stat(ctx, j.note)
 	if err != nil {
 		ce.tctx.Stats.Inc(stats.Failed, 1)
 		return
 	}
-	if err := ce.local.WriteFile(j.meta, []byte(signature(ne.Size, ne.ModTime.Unix())), 0o644); err != nil {
+	if err := ce.local.WriteFile(ctx, j.meta, []byte(signature(ne.Size, ne.ModTime.Unix())), 0o644); err != nil {
 		ce.tctx.Stats.Inc(stats.Failed, 1)
 		return
 	}

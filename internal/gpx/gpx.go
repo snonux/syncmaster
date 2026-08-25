@@ -68,13 +68,13 @@ func (g *Geotag) Apply(ctx context.Context, tctx *driver.TransformCtx) error {
 			return nil
 		}
 		tctx.Stats.Inc(stats.Failed, int64(len(tctx.Imported)))
-		g.rollback(tctx)
+		g.rollback(ctx, tctx)
 		return fmt.Errorf("%w (dir %s)", ErrNoGPX, g.GPXDir)
 	}
 
 	if _, err := g.LookPath("exiftool"); err != nil {
 		tctx.Stats.Inc(stats.Failed, int64(len(tctx.Imported)))
-		g.rollback(tctx)
+		g.rollback(ctx, tctx)
 		return fmt.Errorf("gpx: exiftool not found: %w", err)
 	}
 
@@ -89,7 +89,7 @@ func (g *Geotag) Apply(ctx context.Context, tctx *driver.TransformCtx) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return g.handleMissing(missing, tctx)
+	return g.handleMissing(ctx, missing, tctx)
 }
 
 // runExiftool invokes exiftool to geotag the imported images from the GPX
@@ -103,7 +103,7 @@ func (g *Geotag) runExiftool(ctx context.Context, tracks []string, tctx *driver.
 	tctx.Logger.Info("GPS tagging %d image(s) from %d GPX file(s).", len(tctx.Imported), len(tracks))
 	if _, err := g.Run(ctx, "exiftool", args...); err != nil {
 		tctx.Stats.Inc(stats.Failed, 1)
-		g.rollback(tctx)
+		g.rollback(ctx, tctx)
 		return fmt.Errorf("gpx: exiftool geotag failed: %w", err)
 	}
 	return nil
@@ -112,7 +112,7 @@ func (g *Geotag) runExiftool(ctx context.Context, tracks []string, tctx *driver.
 // handleMissing resolves images that have no GPS coordinates after geotag.
 // With AllowMissing they are imported as-is; otherwise they are rolled back
 // and reported as ErrMissingGPS.
-func (g *Geotag) handleMissing(missing []string, tctx *driver.TransformCtx) error {
+func (g *Geotag) handleMissing(ctx context.Context, missing []string, tctx *driver.TransformCtx) error {
 	if g.AllowMissing {
 		tctx.Logger.Info("Importing %d image(s) without GPS coordinates as requested.", len(missing))
 		return nil
@@ -121,13 +121,13 @@ func (g *Geotag) handleMissing(missing []string, tctx *driver.TransformCtx) erro
 		tctx.Logger.Error("No GPS coordinates found: %s", p)
 	}
 	tctx.Stats.Inc(stats.Failed, int64(len(missing)))
-	g.rollback(tctx)
+	g.rollback(ctx, tctx)
 	return fmt.Errorf("%w (%d image(s))", ErrMissingGPS, len(missing))
 }
 
-func (g *Geotag) findTracks(_ context.Context, local fs.FS) ([]string, error) {
+func (g *Geotag) findTracks(ctx context.Context, local fs.FS) ([]string, error) {
 	var tracks []string
-	err := local.WalkDir(g.GPXDir, func(path string, e fs.Entry) error {
+	err := local.WalkDir(ctx, g.GPXDir, func(path string, e fs.Entry) error {
 		if e.IsDir {
 			return nil
 		}
@@ -160,10 +160,10 @@ func (g *Geotag) findMissing(ctx context.Context, images []string) ([]string, er
 	return missing, nil
 }
 
-func (g *Geotag) rollback(tctx *driver.TransformCtx) {
+func (g *Geotag) rollback(ctx context.Context, tctx *driver.TransformCtx) {
 	removed := 0
 	for _, p := range tctx.Imported {
-		if err := tctx.Local.Remove(p); err == nil {
+		if err := tctx.Local.Remove(ctx, p); err == nil {
 			removed++
 		}
 	}

@@ -60,7 +60,7 @@ func (s copyWritingSource) Copy(ctx context.Context, src, dst string) error {
 		return err
 	}
 	content := s.data[src]
-	return s.local.WriteFile(dst, content, 0o644)
+	return s.local.WriteFile(ctx, dst, content, 0o644)
 }
 
 func buildTree(t *testing.T) *memSource {
@@ -93,7 +93,7 @@ func TestCopyTreeCopiesAll(t *testing.T) {
 		t.Fatalf("Copied = %d, want 3", g)
 	}
 	for _, p := range []string{"/dst/a.jpg", "/dst/b.txt", "/dst/sub/c.jpg"} {
-		if _, err := local.Stat(p); err != nil {
+		if _, err := local.Stat(context.Background(), p); err != nil {
 			t.Fatalf("missing %s: %v", p, err)
 		}
 	}
@@ -111,7 +111,7 @@ func TestCopyTreeMirrorsEmptyDirsWithNilResolver(t *testing.T) {
 	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
 		t.Fatalf("CopyTree: %v", err)
 	}
-	if _, err := local.Stat("/dst/empty"); err != nil {
+	if _, err := local.Stat(context.Background(), "/dst/empty"); err != nil {
 		t.Fatalf("empty source dir should be mirrored: %v", err)
 	}
 }
@@ -154,14 +154,14 @@ func TestCopyTreeResolverExcludes(t *testing.T) {
 	if g := st.Get(stats.Found); g != 2 {
 		t.Fatalf("Found = %d, want 2 (jpg only)", g)
 	}
-	if _, err := local.Stat("/dst/b.txt"); err == nil {
+	if _, err := local.Stat(context.Background(), "/dst/b.txt"); err == nil {
 		t.Fatal("b.txt should be excluded")
 	}
-	if _, err := local.Stat("/dst/a.jpg"); err != nil {
+	if _, err := local.Stat(context.Background(), "/dst/a.jpg"); err != nil {
 		t.Fatalf("a.jpg missing: %v", err)
 	}
 	// Nested .jpg mirrors under the default root via e.RelPath.
-	if _, err := local.Stat("/dst/sub/c.jpg"); err != nil {
+	if _, err := local.Stat(context.Background(), "/dst/sub/c.jpg"); err != nil {
 		t.Fatalf("nested c.jpg missing: %v", err)
 	}
 }
@@ -206,12 +206,12 @@ func TestCopyTreeMultiRootRouting(t *testing.T) {
 		t.Fatalf("Copied = %d, want 4", g)
 	}
 	for _, p := range []string{"/raw/DSC0001.RAF", "/raw/DCIM/DSC0003.RAF", "/jpg/DSC0002.JPG", "/jpg/DCIM/clip.MOV"} {
-		if _, err := local.Stat(p); err != nil {
+		if _, err := local.Stat(context.Background(), p); err != nil {
 			t.Fatalf("missing %s: %v", p, err)
 		}
 	}
 	// Excluded and the unused default root should not receive anything.
-	if _, err := local.Stat("/unused/readme.txt"); err == nil {
+	if _, err := local.Stat(context.Background(), "/unused/readme.txt"); err == nil {
 		t.Fatal("readme.txt should be excluded")
 	}
 }
@@ -219,7 +219,7 @@ func TestCopyTreeMultiRootRouting(t *testing.T) {
 func TestCopyTreeSkipExistingName(t *testing.T) {
 	src := buildTree(t)
 	local := fs.NewMem()
-	_ = local.WriteFile("/dst/a.jpg", []byte("x"), 0o644)
+	_ = local.WriteFile(context.Background(), "/dst/a.jpg", []byte("x"), 0o644)
 	st := stats.New()
 	c := &Copier{
 		Src:   copyWritingSource{src, local},
@@ -265,7 +265,7 @@ func TestCopyTreeSkipExistingSize(t *testing.T) {
 		t.Fatalf("Copied = %d, want 1", g)
 	}
 	// b.jpg was replaced with new content.
-	got, _ := local.ReadFile("/dst/b.jpg")
+	got, _ := local.ReadFile(context.Background(), "/dst/b.jpg")
 	if string(got) != "bbbbb" {
 		t.Fatalf("b.jpg content = %q, want bbbbb", got)
 	}
@@ -314,7 +314,7 @@ func TestCopyTreeSkipUnchangedReplacesWhenChanged(t *testing.T) {
 	if g := st.Get(stats.Copied); g != 1 {
 		t.Fatalf("Copied = %d, want 1", g)
 	}
-	got, _ := local.ReadFile("/dst/a.txt")
+	got, _ := local.ReadFile(context.Background(), "/dst/a.txt")
 	if string(got) != "aaaaa" {
 		t.Fatalf("content = %q, want aaaaa", got)
 	}
@@ -418,7 +418,7 @@ func TestSkipCtxCustomPolicy(t *testing.T) {
 	// A custom policy can read only the fields it needs (here just Entry.Size)
 	// — the struct signature does not force it to take every dep.
 	local := fs.NewMem()
-	_ = local.WriteFile("/dst/f.jpg", []byte("x"), 0o644)
+	_ = local.WriteFile(context.Background(), "/dst/f.jpg", []byte("x"), 0o644)
 	skipIfSmall := func(sc SkipCtx) (bool, error) {
 		return sc.Entry.Size < 10, nil
 	}

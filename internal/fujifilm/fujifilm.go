@@ -67,10 +67,10 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	rawDest := cfg.FujifilmRAWDest
 	reg := d.registry(env)
 
-	if err := env.Local.MkdirAll(jpegDest, 0o755); err != nil {
+	if err := env.Local.MkdirAll(ctx, jpegDest, 0o755); err != nil {
 		return fmt.Errorf("fujifilm: mkdir %s: %w", jpegDest, err)
 	}
-	if err := env.Local.MkdirAll(rawDest, 0o755); err != nil {
+	if err := env.Local.MkdirAll(ctx, rawDest, 0o755); err != nil {
 		return fmt.Errorf("fujifilm: mkdir %s: %w", rawDest, err)
 	}
 

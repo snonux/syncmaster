@@ -52,9 +52,9 @@ func newEnv(st *stats.Stats) *driver.Env {
 }
 
 func withGPX(env *driver.Env, files ...string) {
-	_ = env.Local.MkdirAll("/gpx", 0o755)
+	_ = env.Local.MkdirAll(context.Background(), "/gpx", 0o755)
 	for _, f := range files {
-		_ = env.Local.WriteFile("/gpx/"+f, []byte("x"), 0o644)
+		_ = env.Local.WriteFile(context.Background(), "/gpx/"+f, []byte("x"), 0o644)
 	}
 }
 
@@ -86,7 +86,7 @@ func TestApplyNoGPXAllowed(t *testing.T) {
 func TestApplyNoGPXRollback(t *testing.T) {
 	st := stats.New()
 	env := newEnv(st)
-	_ = env.Local.WriteFile("/dst/a.jpg", []byte("x"), 0o644)
+	_ = env.Local.WriteFile(context.Background(), "/dst/a.jpg", []byte("x"), 0o644)
 	st.Inc(stats.Copied, 1)
 
 	g := &Geotag{Runner: &recordingRunner{lookPath: map[string]bool{}}, GPXDir: "/gpx"}
@@ -100,7 +100,7 @@ func TestApplyNoGPXRollback(t *testing.T) {
 	if st.Get(stats.Copied) != 0 {
 		t.Fatalf("Copied = %d, want 0 (rolled back)", st.Get(stats.Copied))
 	}
-	if _, err := env.Local.Stat("/dst/a.jpg"); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := env.Local.Stat(context.Background(), "/dst/a.jpg"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("rolled-back file should be gone: %v", err)
 	}
 }
@@ -109,7 +109,7 @@ func TestApplyGeotagSuccess(t *testing.T) {
 	st := stats.New()
 	env := newEnv(st)
 	withGPX(env, "a.gpx", "b.gpx")
-	_ = env.Local.WriteFile("/dst/a.jpg", []byte("x"), 0o644)
+	_ = env.Local.WriteFile(context.Background(), "/dst/a.jpg", []byte("x"), 0o644)
 	st.Inc(stats.Copied, 1)
 
 	r := &recordingRunner{lookPath: map[string]bool{"exiftool": true}, missingOut: []byte("")}
@@ -139,8 +139,8 @@ func TestApplyMissingGPSNotAllowedRollback(t *testing.T) {
 	st := stats.New()
 	env := newEnv(st)
 	withGPX(env, "a.gpx")
-	_ = env.Local.WriteFile("/dst/a.jpg", []byte("x"), 0o644)
-	_ = env.Local.WriteFile("/dst/b.jpg", []byte("y"), 0o644)
+	_ = env.Local.WriteFile(context.Background(), "/dst/a.jpg", []byte("x"), 0o644)
+	_ = env.Local.WriteFile(context.Background(), "/dst/b.jpg", []byte("y"), 0o644)
 	st.Inc(stats.Copied, 2)
 
 	r := &recordingRunner{lookPath: map[string]bool{"exiftool": true}, missingOut: []byte("/dst/a.jpg\n")}
@@ -161,7 +161,7 @@ func TestApplyMissingGPSAllowed(t *testing.T) {
 	st := stats.New()
 	env := newEnv(st)
 	withGPX(env, "a.gpx")
-	_ = env.Local.WriteFile("/dst/a.jpg", []byte("x"), 0o644)
+	_ = env.Local.WriteFile(context.Background(), "/dst/a.jpg", []byte("x"), 0o644)
 	st.Inc(stats.Copied, 1)
 
 	r := &recordingRunner{lookPath: map[string]bool{"exiftool": true}, missingOut: []byte("/dst/a.jpg\n")}
@@ -172,7 +172,7 @@ func TestApplyMissingGPSAllowed(t *testing.T) {
 	if st.Get(stats.Failed) != 0 {
 		t.Fatalf("Failed = %d", st.Get(stats.Failed))
 	}
-	if _, err := env.Local.Stat("/dst/a.jpg"); err != nil {
+	if _, err := env.Local.Stat(context.Background(), "/dst/a.jpg"); err != nil {
 		t.Fatalf("image should remain: %v", err)
 	}
 }
@@ -181,7 +181,7 @@ func TestApplyExiftoolMissing(t *testing.T) {
 	st := stats.New()
 	env := newEnv(st)
 	withGPX(env, "a.gpx")
-	_ = env.Local.WriteFile("/dst/a.jpg", []byte("x"), 0o644)
+	_ = env.Local.WriteFile(context.Background(), "/dst/a.jpg", []byte("x"), 0o644)
 	st.Inc(stats.Copied, 1)
 
 	r := &recordingRunner{lookPath: map[string]bool{}}
@@ -198,7 +198,7 @@ func TestApplyGeotagRunErrorRollback(t *testing.T) {
 	st := stats.New()
 	env := newEnv(st)
 	withGPX(env, "a.gpx")
-	_ = env.Local.WriteFile("/dst/a.jpg", []byte("x"), 0o644)
+	_ = env.Local.WriteFile(context.Background(), "/dst/a.jpg", []byte("x"), 0o644)
 	st.Inc(stats.Copied, 1)
 
 	r := &recordingRunner{lookPath: map[string]bool{"exiftool": true}, geotagErr: errors.New("boom")}

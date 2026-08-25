@@ -84,7 +84,7 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 		return fmt.Errorf("supernote: Note folder not found at %s", noteRoot)
 	}
 
-	if err := env.Local.MkdirAll(dest, 0o755); err != nil {
+	if err := env.Local.MkdirAll(ctx, dest, 0o755); err != nil {
 		return fmt.Errorf("supernote: mkdir %s: %w", dest, err)
 	}
 
@@ -111,7 +111,7 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 	}
 	if docOK {
 		koDest := filepath.Join(dest, "KOReader")
-		if err := env.Local.MkdirAll(koDest, 0o755); err != nil {
+		if err := env.Local.MkdirAll(ctx, koDest, 0o755); err != nil {
 			return fmt.Errorf("supernote: mkdir %s: %w", koDest, err)
 		}
 		_, _ = fmt.Fprintf(env.Out, "Source: %s\nKOReader destination: %s\n", documentRoot, koDest)

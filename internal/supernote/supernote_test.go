@@ -61,8 +61,8 @@ type writingSource struct {
 func (w writingSource) List(_ context.Context, dir string) ([]copier.Entry, error) {
 	return w.dirs[dir], nil
 }
-func (w writingSource) Copy(_ context.Context, src, dst string) error {
-	return w.local.WriteFile(dst, w.files[src], 0o644)
+func (w writingSource) Copy(ctx context.Context, src, dst string) error {
+	return w.local.WriteFile(ctx, dst, w.files[src], 0o644)
 }
 
 func newEnv(t *testing.T, cfg config.Config, st *stats.Stats) *driver.Env {
@@ -180,7 +180,7 @@ func TestSyncCopiesNoteAndDocumentAndConverts(t *testing.T) {
 	fake.Register("supernote-tool", func(_ context.Context, args []string) ([]byte, error) {
 		// args: convert -a -t pdf <note> <out>
 		out := args[len(args)-1]
-		_ = env.Local.WriteFile(out, []byte("pdf"), 0o644)
+		_ = env.Local.WriteFile(context.Background(), out, []byte("pdf"), 0o644)
 		return nil, nil
 	})
 	env.Runner = fake
@@ -190,18 +190,18 @@ func TestSyncCopiesNoteAndDocumentAndConverts(t *testing.T) {
 	}
 
 	// Note files copied.
-	if _, err := env.Local.Stat(filepath.Join(cfg.SupernoteDestEffective(), "a.note")); err != nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.SupernoteDestEffective(), "a.note")); err != nil {
 		t.Fatalf("a.note not copied: %v", err)
 	}
-	if _, err := env.Local.Stat(filepath.Join(cfg.SupernoteDestEffective(), "Inbox", "b.note")); err != nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.SupernoteDestEffective(), "Inbox", "b.note")); err != nil {
 		t.Fatalf("b.note not copied: %v", err)
 	}
 	// KOReader file copied.
-	if _, err := env.Local.Stat(filepath.Join(cfg.SupernoteDestEffective(), "KOReader", "book.epub")); err != nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.SupernoteDestEffective(), "KOReader", "book.epub")); err != nil {
 		t.Fatalf("book.epub not copied: %v", err)
 	}
 	// PDFs converted from notes.
-	if _, err := env.Local.Stat(filepath.Join(cfg.SupernoteDestEffective(), "a.pdf")); err != nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.SupernoteDestEffective(), "a.pdf")); err != nil {
 		t.Fatalf("a.pdf not converted: %v", err)
 	}
 	if got := st.Get(stats.Converted); got != 2 {
@@ -236,7 +236,7 @@ func TestSyncSkipsUnchangedFiles(t *testing.T) {
 	local := fs.NewMem()
 	mt := time.Unix(1000, 0)
 	dest := filepath.Join(cfg.SupernoteDestEffective(), "a.note")
-	_ = local.MkdirAll(filepath.Dir(dest), 0o755)
+	_ = local.MkdirAll(context.Background(), filepath.Dir(dest), 0o755)
 	local.WriteFileAt(dest, []byte("note"), mt)
 	env := newEnv(t, cfg, st)
 	env.Local = local

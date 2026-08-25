@@ -71,7 +71,7 @@ func (w writingSource) Copy(ctx context.Context, src, dst string) error {
 	if err := w.fakeTree.Copy(ctx, src, dst); err != nil {
 		return err
 	}
-	return w.local.WriteFile(dst, w.files[src], 0o644)
+	return w.local.WriteFile(ctx, dst, w.files[src], 0o644)
 }
 
 func newEnv(t *testing.T, src copier.Source, mounts driver.MountFS, st *stats.Stats, cfg config.Config) *driver.Env {
@@ -129,16 +129,16 @@ func TestSyncRoutesFiles(t *testing.T) {
 	}
 
 	// RAW -> rawDest; JPEG/video -> jpegDest; txt excluded.
-	if _, err := env.Local.Stat(filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF")); err != nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF")); err != nil {
 		t.Fatalf("RAW not copied: %v", err)
 	}
-	if _, err := env.Local.Stat(filepath.Join(cfg.FujifilmJPEGDest(), "DSC0002.JPG")); err != nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "DSC0002.JPG")); err != nil {
 		t.Fatalf("JPG not copied: %v", err)
 	}
-	if _, err := env.Local.Stat(filepath.Join(cfg.FujifilmJPEGDest(), "clip.MOV")); err != nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "clip.MOV")); err != nil {
 		t.Fatalf("MOV not copied: %v", err)
 	}
-	if _, err := env.Local.Stat(filepath.Join(cfg.FujifilmJPEGDest(), "readme.txt")); err == nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "readme.txt")); err == nil {
 		t.Fatal("readme.txt should be excluded")
 	}
 
@@ -160,7 +160,7 @@ func TestSyncSkipExisting(t *testing.T) {
 	env := newEnv(t, nil, tree, st, cfg)
 	env.Source = writingSource{tree, env.Local}
 	// Pre-create the RAW file with the same size so SkipExistingSize skips it.
-	_ = env.Local.WriteFile(filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF"), []byte("xxx"), 0o644)
+	_ = env.Local.WriteFile(context.Background(), filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF"), []byte("xxx"), 0o644)
 
 	d := &Driver{Media: media.Default()}
 	if err := d.Sync(context.Background(), driver.Device{Source: "/src"}, env); err != nil {
@@ -184,7 +184,7 @@ func TestSyncReplacesDifferentSize(t *testing.T) {
 	env := newEnv(t, nil, tree, st, cfg)
 	env.Source = writingSource{tree, env.Local}
 	// Pre-create with a different size — should be re-copied, not skipped.
-	_ = env.Local.WriteFile(filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF"), []byte("existing data"), 0o644)
+	_ = env.Local.WriteFile(context.Background(), filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF"), []byte("existing data"), 0o644)
 
 	d := &Driver{Media: media.Default()}
 	if err := d.Sync(context.Background(), driver.Device{Source: "/src"}, env); err != nil {
@@ -215,7 +215,7 @@ func TestSyncGeotagFailureRollsBack(t *testing.T) {
 		t.Fatal("expected geotag failure error")
 	}
 	// Rollback removes the copied image.
-	if _, err := env.Local.Stat(filepath.Join(cfg.FujifilmJPEGDest(), "DSC0001.JPG")); err == nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "DSC0001.JPG")); err == nil {
 		t.Fatal("JPG should have been rolled back")
 	}
 }

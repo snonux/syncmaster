@@ -46,7 +46,7 @@ func newEnv(local *fs.Mem, st *stats.Stats) *driver.Env {
 func writeNote(t *testing.T, local *fs.Mem, path string, size int64) {
 	t.Helper()
 	data := make([]byte, size)
-	if err := local.WriteFile(path, data, 0o644); err != nil {
+	if err := local.WriteFile(context.Background(), path, data, 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
@@ -59,7 +59,7 @@ func TestApplyConvertsStaleNotes(t *testing.T) {
 	writeNote(t, local, "/dst/b.note", 20)
 
 	conv := &fakeConverter{convert: func(note, out string) error {
-		return local.WriteFile(out, []byte("pdf"), 0o644)
+		return local.WriteFile(context.Background(), out, []byte("pdf"), 0o644)
 	}}
 	c := &Convert{Conv: conv, Workers: 2}
 	if err := c.Apply(context.Background(), &driver.TransformCtx{Env: env, DestRoot: "/dst"}); err != nil {
@@ -73,10 +73,10 @@ func TestApplyConvertsStaleNotes(t *testing.T) {
 	}
 	// PDFs and meta sidecars should exist.
 	for _, p := range []string{"/dst/a.pdf", "/dst/b.pdf"} {
-		if _, err := local.Stat(p); err != nil {
+		if _, err := local.Stat(context.Background(), p); err != nil {
 			t.Fatalf("missing %s: %v", p, err)
 		}
-		if _, err := local.ReadFile(p + ".note-meta"); err != nil {
+		if _, err := local.ReadFile(context.Background(), p+".note-meta"); err != nil {
 			t.Fatalf("missing meta for %s: %v", p, err)
 		}
 	}
@@ -88,9 +88,9 @@ func TestApplySkipsCurrentPDFs(t *testing.T) {
 	env := newEnv(local, st)
 	writeNote(t, local, "/dst/a.note", 10)
 	// Pre-create matching pdf + meta.
-	_ = local.WriteFile("/dst/a.pdf", []byte("pdf"), 0o644)
-	ne, _ := local.Stat("/dst/a.note")
-	_ = local.WriteFile("/dst/a.pdf.note-meta", []byte(signature(ne.Size, ne.ModTime.Unix())), 0o644)
+	_ = local.WriteFile(context.Background(), "/dst/a.pdf", []byte("pdf"), 0o644)
+	ne, _ := local.Stat(context.Background(), "/dst/a.note")
+	_ = local.WriteFile(context.Background(), "/dst/a.pdf.note-meta", []byte(signature(ne.Size, ne.ModTime.Unix())), 0o644)
 
 	conv := &fakeConverter{}
 	c := &Convert{Conv: conv, Workers: 1}
@@ -113,11 +113,11 @@ func TestApplyReconvertsWhenNoteChanged(t *testing.T) {
 	st := stats.New()
 	env := newEnv(local, st)
 	writeNote(t, local, "/dst/a.note", 10)
-	_ = local.WriteFile("/dst/a.pdf", []byte("old"), 0o644)
-	_ = local.WriteFile("/dst/a.pdf.note-meta", []byte("size=5\nmtime=1\n"), 0o644) // stale
+	_ = local.WriteFile(context.Background(), "/dst/a.pdf", []byte("old"), 0o644)
+	_ = local.WriteFile(context.Background(), "/dst/a.pdf.note-meta", []byte("size=5\nmtime=1\n"), 0o644) // stale
 
 	conv := &fakeConverter{convert: func(_, out string) error {
-		return local.WriteFile(out, []byte("pdf"), 0o644)
+		return local.WriteFile(context.Background(), out, []byte("pdf"), 0o644)
 	}}
 	c := &Convert{Conv: conv, Workers: 1}
 	if err := c.Apply(context.Background(), &driver.TransformCtx{Env: env, DestRoot: "/dst"}); err != nil {
@@ -136,7 +136,7 @@ func TestApplyCountsConversionFailures(t *testing.T) {
 	writeNote(t, local, "/dst/b.note", 20)
 
 	conv := &fakeConverter{failOn: map[string]bool{"a.note": true}, convert: func(_, out string) error {
-		return local.WriteFile(out, []byte("pdf"), 0o644)
+		return local.WriteFile(context.Background(), out, []byte("pdf"), 0o644)
 	}}
 	c := &Convert{Conv: conv, Workers: 1}
 	if err := c.Apply(context.Background(), &driver.TransformCtx{Env: env, DestRoot: "/dst"}); err != nil {
@@ -149,7 +149,7 @@ func TestApplyCountsConversionFailures(t *testing.T) {
 		t.Fatalf("Converted = %d, want 1", got)
 	}
 	// Failed tmp should be removed; no pdf for a.
-	if _, err := local.Stat("/dst/a.pdf"); err == nil {
+	if _, err := local.Stat(context.Background(), "/dst/a.pdf"); err == nil {
 		t.Fatal("a.pdf should not exist after failure")
 	}
 }
@@ -181,10 +181,10 @@ func TestApplyIgnoresNonNoteFiles(t *testing.T) {
 	st := stats.New()
 	env := newEnv(local, st)
 	writeNote(t, local, "/dst/a.note", 10)
-	_ = local.WriteFile("/dst/readme.txt", []byte("hi"), 0o644)
+	_ = local.WriteFile(context.Background(), "/dst/readme.txt", []byte("hi"), 0o644)
 
 	conv := &fakeConverter{convert: func(_, out string) error {
-		return local.WriteFile(out, []byte("pdf"), 0o644)
+		return local.WriteFile(context.Background(), out, []byte("pdf"), 0o644)
 	}}
 	c := &Convert{Conv: conv, Workers: 1}
 	if err := c.Apply(context.Background(), &driver.TransformCtx{Env: env, DestRoot: "/dst"}); err != nil {
@@ -214,7 +214,7 @@ func TestApplyParallelismBounded(t *testing.T) {
 			}
 		}
 		// no sleep; just track concurrency structurally
-		_ = local.WriteFile(out, []byte("pdf"), 0o644)
+		_ = local.WriteFile(context.Background(), out, []byte("pdf"), 0o644)
 		inflight.Add(-1)
 		return nil
 	}}
@@ -232,17 +232,17 @@ func TestApplyCleansStaleTemp(t *testing.T) {
 	local := fs.NewMem()
 	st := stats.New()
 	env := newEnv(local, st)
-	_ = local.WriteFile("/dst/old.pdf.tmp.123", []byte("x"), 0o644)
-	_ = local.WriteFile("/dst/a.note", make([]byte, 5), 0o644)
+	_ = local.WriteFile(context.Background(), "/dst/old.pdf.tmp.123", []byte("x"), 0o644)
+	_ = local.WriteFile(context.Background(), "/dst/a.note", make([]byte, 5), 0o644)
 
 	conv := &fakeConverter{convert: func(_, out string) error {
-		return local.WriteFile(out, []byte("pdf"), 0o644)
+		return local.WriteFile(context.Background(), out, []byte("pdf"), 0o644)
 	}}
 	c := &Convert{Conv: conv, Workers: 1}
 	if err := c.Apply(context.Background(), &driver.TransformCtx{Env: env, DestRoot: "/dst"}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if _, err := local.Stat("/dst/old.pdf.tmp.123"); err == nil {
+	if _, err := local.Stat(context.Background(), "/dst/old.pdf.tmp.123"); err == nil {
 		t.Fatal("stale tmp should be removed")
 	}
 }
@@ -252,13 +252,13 @@ func TestApplyContextCancelStopsWork(t *testing.T) {
 	st := stats.New()
 	env := newEnv(local, st)
 	for i := 0; i < 4; i++ {
-		_ = local.WriteFile("/dst/n"+string(rune('a'+i))+".note", []byte("x"), 0o644)
+		_ = local.WriteFile(context.Background(), "/dst/n"+string(rune('a'+i))+".note", []byte("x"), 0o644)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancelled
 
 	conv := &fakeConverter{convert: func(_, out string) error {
-		return local.WriteFile(out, []byte("pdf"), 0o644)
+		return local.WriteFile(context.Background(), out, []byte("pdf"), 0o644)
 	}}
 	c := &Convert{Conv: conv, Workers: 2}
 	err := c.Apply(ctx, &driver.TransformCtx{Env: env, DestRoot: "/dst"})

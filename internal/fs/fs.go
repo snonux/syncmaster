@@ -5,6 +5,7 @@
 package fs
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -26,16 +27,20 @@ type Entry struct {
 	ModTime time.Time
 }
 
-// FS is the local-filesystem interface used throughout syncmaster.
+// FS is the local-filesystem interface used throughout syncmaster. Every
+// method takes a context as its first parameter so callers can cancel
+// in-flight walks/stats/writes (e.g. on Ctrl+C abort); the in-memory Mem
+// implementation ignores it, while OS checks ctx.Err() before each os call
+// and aborts WalkDir on cancellation.
 type FS interface {
-	Stat(path string) (Entry, error)
-	MkdirAll(path string, perm os.FileMode) error
-	Remove(path string) error
-	Rename(old, new string) error
-	WriteFile(path string, data []byte, perm os.FileMode) error
-	ReadFile(path string) ([]byte, error)
-	ReadDir(path string) ([]Entry, error)
-	WalkDir(root string, fn func(path string, e Entry) error) error
+	Stat(ctx context.Context, path string) (Entry, error)
+	MkdirAll(ctx context.Context, path string, perm os.FileMode) error
+	Remove(ctx context.Context, path string) error
+	Rename(ctx context.Context, old, new string) error
+	WriteFile(ctx context.Context, path string, data []byte, perm os.FileMode) error
+	ReadFile(ctx context.Context, path string) ([]byte, error)
+	ReadDir(ctx context.Context, path string) ([]Entry, error)
+	WalkDir(ctx context.Context, root string, fn func(path string, e Entry) error) error
 }
 
 // OS is the production FS backed by the os package.
@@ -44,7 +49,10 @@ type OS struct{}
 var _ FS = (*OS)(nil)
 
 // Stat wraps os.Stat.
-func (OS) Stat(path string) (Entry, error) {
+func (OS) Stat(ctx context.Context, path string) (Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return Entry{}, err
+	}
 	fi, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -56,21 +64,42 @@ func (OS) Stat(path string) (Entry, error) {
 }
 
 // MkdirAll wraps os.MkdirAll.
-func (OS) MkdirAll(path string, perm os.FileMode) error { return os.MkdirAll(path, perm) }
+func (OS) MkdirAll(ctx context.Context, path string, perm os.FileMode) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return os.MkdirAll(path, perm)
+}
 
 // Remove wraps os.Remove.
-func (OS) Remove(path string) error { return os.Remove(path) }
+func (OS) Remove(ctx context.Context, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
 
 // Rename wraps os.Rename.
-func (OS) Rename(old, new string) error { return os.Rename(old, new) }
+func (OS) Rename(ctx context.Context, old, new string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return os.Rename(old, new)
+}
 
 // WriteFile wraps os.WriteFile.
-func (OS) WriteFile(path string, data []byte, perm os.FileMode) error {
+func (OS) WriteFile(ctx context.Context, path string, data []byte, perm os.FileMode) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return os.WriteFile(path, data, perm)
 }
 
 // ReadFile wraps os.ReadFile.
-func (OS) ReadFile(path string) ([]byte, error) {
+func (OS) ReadFile(ctx context.Context, path string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	b, err := os.ReadFile(path)
 	if err != nil && os.IsNotExist(err) {
 		return nil, ErrNotExist
@@ -79,7 +108,10 @@ func (OS) ReadFile(path string) ([]byte, error) {
 }
 
 // ReadDir lists a directory, sorted by name.
-func (OS) ReadDir(path string) ([]Entry, error) {
+func (OS) ReadDir(ctx context.Context, path string) ([]Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	des, err := os.ReadDir(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -91,9 +123,16 @@ func (OS) ReadDir(path string) ([]Entry, error) {
 }
 
 // WalkDir walks root recursively, invoking fn for each entry (including root).
-func (OS) WalkDir(root string, fn func(path string, e Entry) error) error {
+// It aborts the walk as soon as ctx is cancelled.
+func (OS) WalkDir(ctx context.Context, root string, fn func(path string, e Entry) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		fi, err := d.Info()
@@ -148,7 +187,7 @@ func NewMem() *Mem {
 }
 
 // Stat reports the entry for path.
-func (m *Mem) Stat(path string) (Entry, error) {
+func (m *Mem) Stat(ctx context.Context, path string) (Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p := filepath.Clean(path)
@@ -162,7 +201,7 @@ func (m *Mem) Stat(path string) (Entry, error) {
 }
 
 // MkdirAll records a directory.
-func (m *Mem) MkdirAll(path string, _ os.FileMode) error {
+func (m *Mem) MkdirAll(ctx context.Context, path string, _ os.FileMode) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dirs[filepath.Clean(path)] = struct{}{}
@@ -170,7 +209,7 @@ func (m *Mem) MkdirAll(path string, _ os.FileMode) error {
 }
 
 // Remove deletes a file or empty dir.
-func (m *Mem) Remove(path string) error {
+func (m *Mem) Remove(ctx context.Context, path string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p := filepath.Clean(path)
@@ -186,7 +225,7 @@ func (m *Mem) Remove(path string) error {
 }
 
 // Rename moves a file. The new path's parent is implicitly created.
-func (m *Mem) Rename(old, new string) error {
+func (m *Mem) Rename(ctx context.Context, old, new string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	o := filepath.Clean(old)
@@ -203,7 +242,7 @@ func (m *Mem) Rename(old, new string) error {
 
 // WriteFile writes data at path, recording modtime as now (callers that need a
 // specific modtime should use WriteFileAt).
-func (m *Mem) WriteFile(path string, data []byte, _ os.FileMode) error {
+func (m *Mem) WriteFile(ctx context.Context, path string, data []byte, _ os.FileMode) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p := filepath.Clean(path)
@@ -222,7 +261,7 @@ func (m *Mem) WriteFileAt(path string, data []byte, modtime time.Time) {
 }
 
 // ReadFile reads a file.
-func (m *Mem) ReadFile(path string) ([]byte, error) {
+func (m *Mem) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	f, ok := m.files[filepath.Clean(path)]
@@ -233,7 +272,7 @@ func (m *Mem) ReadFile(path string) ([]byte, error) {
 }
 
 // ReadDir lists direct children of a directory.
-func (m *Mem) ReadDir(path string) ([]Entry, error) {
+func (m *Mem) ReadDir(ctx context.Context, path string) ([]Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	root := filepath.Clean(path)
@@ -282,7 +321,7 @@ func (m *Mem) ReadDir(path string) ([]Entry, error) {
 
 // WalkDir walks the tree under root, invoking fn for every file and directory
 // (including root itself).
-func (m *Mem) WalkDir(root string, fn func(path string, e Entry) error) error {
+func (m *Mem) WalkDir(ctx context.Context, root string, fn func(path string, e Entry) error) error {
 	m.mu.Lock()
 	paths := make([]string, 0, len(m.files)+len(m.dirs))
 	for p := range m.files {
@@ -293,7 +332,7 @@ func (m *Mem) WalkDir(root string, fn func(path string, e Entry) error) error {
 	}
 	m.mu.Unlock()
 
-	all := m.entriesUnder(filepath.Clean(root), paths)
+	all := m.entriesUnder(ctx, filepath.Clean(root), paths)
 	keys := make([]string, 0, len(all))
 	for k := range all {
 		keys = append(keys, k)
@@ -310,14 +349,14 @@ func (m *Mem) WalkDir(root string, fn func(path string, e Entry) error) error {
 // entriesUnder returns the entries at/under cleanRoot plus the intermediate
 // directories needed to walk down to them, keyed by path. Root is included
 // first.
-func (m *Mem) entriesUnder(cleanRoot string, paths []string) map[string]Entry {
+func (m *Mem) entriesUnder(ctx context.Context, cleanRoot string, paths []string) map[string]Entry {
 	all := map[string]Entry{}
 	all[cleanRoot] = Entry{Name: filepath.Base(cleanRoot), IsDir: true}
 	for _, p := range paths {
 		if p != cleanRoot && !strings.HasPrefix(p, cleanRoot+string(filepath.Separator)) {
 			continue
 		}
-		e, err := m.Stat(p)
+		e, err := m.Stat(ctx, p)
 		if err != nil {
 			continue
 		}

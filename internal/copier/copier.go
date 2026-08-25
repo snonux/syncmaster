@@ -82,7 +82,7 @@ func (c *Copier) CopyTree(ctx context.Context, srcDir, dstRoot string) error {
 	if c.Stats == nil {
 		return fmt.Errorf("copier: nil Stats")
 	}
-	if err := c.Local.MkdirAll(dstRoot, 0o755); err != nil {
+	if err := c.Local.MkdirAll(ctx, dstRoot, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dstRoot, err)
 	}
 	return c.copyDir(ctx, srcDir, "", dstRoot)
@@ -108,7 +108,7 @@ func (c *Copier) copyDir(ctx context.Context, srcDir, rel, dstRoot string) error
 			// copied file instead.
 			if c.Resolve == nil {
 				dstSub := joinPath(dstRoot, e.RelPath)
-				if err := c.Local.MkdirAll(dstSub, 0o755); err != nil {
+				if err := c.Local.MkdirAll(ctx, dstSub, 0o755); err != nil {
 					return fmt.Errorf("mkdir %s: %w", dstSub, err)
 				}
 			}
@@ -145,7 +145,7 @@ func (c *Copier) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) 
 	}
 
 	destPath := joinPath(root, relPath)
-	if err := c.Local.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+	if err := c.Local.MkdirAll(ctx, filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir parent %s: %w", filepath.Dir(destPath), err)
 	}
 
@@ -160,8 +160,8 @@ func (c *Copier) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) 
 	}
 
 	// Replace any existing destination file before copying.
-	if _, statErr := c.Local.Stat(destPath); statErr == nil {
-		if err := c.Local.Remove(destPath); err != nil {
+	if _, statErr := c.Local.Stat(ctx, destPath); statErr == nil {
+		if err := c.Local.Remove(ctx, destPath); err != nil {
 			return fmt.Errorf("remove %s: %w", destPath, err)
 		}
 	}
@@ -205,7 +205,10 @@ func (zeroClock) Now() time.Time { return time.Time{} }
 // SkipExistingName skips when a file with the same name already exists at
 // the destination (Fujifilm behavior).
 func SkipExistingName(sc SkipCtx) (bool, error) {
-	_, err := sc.Local.Stat(sc.DestPath)
+	if sc.Ctx == nil {
+		sc.Ctx = context.Background()
+	}
+	_, err := sc.Local.Stat(sc.Ctx, sc.DestPath)
 	if err == nil {
 		return true, nil
 	}
@@ -219,7 +222,10 @@ func SkipExistingName(sc SkipCtx) (bool, error) {
 // the source entry. If the destination is missing or has a different size it
 // is copied (Fujifilm re-sync behavior).
 func SkipExistingSize(sc SkipCtx) (bool, error) {
-	de, err := sc.Local.Stat(sc.DestPath)
+	if sc.Ctx == nil {
+		sc.Ctx = context.Background()
+	}
+	de, err := sc.Local.Stat(sc.Ctx, sc.DestPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
@@ -232,7 +238,10 @@ func SkipExistingSize(sc SkipCtx) (bool, error) {
 // SkipUnchangedSizeMtime skips when the destination exists with the same size
 // and modification time (unix seconds) as the source (Supernote behavior).
 func SkipUnchangedSizeMtime(sc SkipCtx) (bool, error) {
-	de, err := sc.Local.Stat(sc.DestPath)
+	if sc.Ctx == nil {
+		sc.Ctx = context.Background()
+	}
+	de, err := sc.Local.Stat(sc.Ctx, sc.DestPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
