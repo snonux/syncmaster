@@ -171,7 +171,10 @@ func (c *Convert) runWorkers(ctx context.Context, local fs.Store, conv Converter
 		n = len(jobs)
 	}
 
-	work := make(chan job, len(jobs))
+	// A bounded buffer (sized to the worker count) caps in-flight memory for
+	// large job sets and makes the send loop block on backpressure, so a
+	// cancelled context is observed here as well as inside the workers.
+	work := make(chan job, n)
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
 		wg.Add(1)
@@ -183,15 +186,22 @@ func (c *Convert) runWorkers(ctx context.Context, local fs.Store, conv Converter
 		}()
 	}
 
+	// Each job must be counted exactly once, in exactly one of Converted or
+	// Failed. Workers own the accounting for every job they pull off the
+	// channel (Converted on success, Failed on ctx.Err/Convert error). Only
+	// the never-sent tail — jobs past the point the send loop reached when the
+	// context fired — is counted here. Counting len(jobs)-len(work) instead
+	// double-counts the completed and in-flight jobs and inflates Failed (051).
+	enqueued := 0
 	for _, j := range jobs {
 		select {
 		case <-ctx.Done():
-			// Drain remaining jobs as failed.
-			tctx.Stats.Inc(stats.Failed, int64(len(jobs)-len(work)))
+			tctx.Stats.Inc(stats.Failed, int64(len(jobs)-enqueued))
 			close(work)
 			wg.Wait()
 			return
 		case work <- j:
+			enqueued++
 		}
 	}
 	close(work)

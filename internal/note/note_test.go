@@ -315,6 +315,48 @@ func TestApplyContextCancelStopsWork(t *testing.T) {
 	}
 }
 
+// TestRunWorkersCancelCountsEachJobOnce reproduces 051: when the context is
+// cancelled mid-run, every job must be counted exactly once (in Converted OR
+// Failed), never both, never neither. The old send-loop cancel accounting
+// (len(jobs)-len(work)) double-counted completed and in-flight jobs and
+// inflated Failed. With Workers=1 + a bounded buffer, the send loop blocks
+// on backpressure so the cancel branch is actually reached here.
+func TestRunWorkersCancelCountsEachJobOnce(t *testing.T) {
+	local := fs.NewMem()
+	st := stats.New()
+	env := newEnv(local, st)
+	const N = 5
+	for i := 0; i < N; i++ {
+		writeNote(t, local, "/dst/n"+string(rune('a'+i))+".note", 5)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var completed atomic.Int32
+	conv := &fakeConverter{convert: func(_, out string) error {
+		if err := local.WriteFile(context.Background(), out, []byte("pdf"), 0o644); err != nil {
+			return err
+		}
+		if n := completed.Add(1); n == 2 {
+			cancel() // cancel once two jobs have completed
+		}
+		return nil
+	}}
+	c := &Convert{Conv: conv, Workers: 1}
+	_ = c.Apply(ctx, &driver.TransformCtx{Env: env, DestRoot: "/dst"})
+
+	converted := st.Get(stats.Converted)
+	failed := st.Get(stats.Failed)
+	if converted+failed != N {
+		t.Fatalf("converted+failed = %d, want %d (each job counted exactly once)", converted+failed, N)
+	}
+	if converted < 1 {
+		t.Fatalf("Converted = %d, want >=1 (some job should complete before cancel)", converted)
+	}
+	if failed < 1 {
+		t.Fatalf("Failed = %d, want >=1 (cancel should fail the unsent tail)", failed)
+	}
+}
+
 func TestSignatureAndChangeNoteExt(t *testing.T) {
 	if signature(7, 99) != "size=7\nmtime=99\n" {
 		t.Fatal("signature mismatch")
