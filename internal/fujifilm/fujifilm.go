@@ -23,10 +23,10 @@ type Driver struct {
 var _ driver.Driver = (*Driver)(nil)
 
 // Name returns the driver name.
-func (Driver) Name() string { return "fujifilm" }
+func (d *Driver) Name() string { return "fujifilm" }
 
 // Description returns the human-readable summary shown in usage/help.
-func (Driver) Description() string {
+func (d *Driver) Description() string {
 	return "Copy JPEG, RAW, and video files from a Fuji/Fujifilm camera."
 }
 
