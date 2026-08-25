@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -130,6 +131,15 @@ func signature(size int64, mtime int64) string {
 	return fmt.Sprintf("size=%d\nmtime=%d\n", size, mtime)
 }
 
+// staleTempRe matches exactly the orphaned temp files this package creates:
+// "<stem>.pdf.tmp.<uint>" (convertOne writes fmt.Sprintf("%s.tmp.%d", j.pdf, n),
+// and j.pdf ends in ".pdf"). The anchored integer suffix avoids deleting a
+// legitimate user file that merely contains ".pdf.tmp." somewhere in its
+// name (silent data loss in the user's backup destination). A user file that
+// happens to match this exact shape would still be reaped; distinguishing it
+// from a real orphan would require recording the temp paths created this run.
+var staleTempRe = regexp.MustCompile(`^.*\.pdf\.tmp\.[0-9]+$`)
+
 func cleanStaleTemp(ctx context.Context, local fs.Store, root string) error {
 	return local.WalkDir(ctx, root, func(path string, e fs.Entry) error {
 		if err := ctx.Err(); err != nil {
@@ -138,7 +148,7 @@ func cleanStaleTemp(ctx context.Context, local fs.Store, root string) error {
 		if e.IsDir {
 			return nil
 		}
-		if strings.Contains(filepath.Base(path), ".pdf.tmp.") {
+		if staleTempRe.MatchString(filepath.Base(path)) {
 			_ = local.Remove(ctx, path)
 		}
 		return nil

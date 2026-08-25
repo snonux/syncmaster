@@ -247,6 +247,51 @@ func TestApplyCleansStaleTemp(t *testing.T) {
 	}
 }
 
+// TestCleanStaleTempOnlyReapsOwnOrphans is the 151 regression: cleanStaleTemp
+// must reap ONLY the temp files this package creates ("<stem>.pdf.tmp.<uint>"),
+// not any legitimate user file whose name merely contains ".pdf.tmp.". The old
+// strings.Contains predicate silently deleted user files in the Supernote
+// backup destination.
+func TestCleanStaleTempOnlyReapsOwnOrphans(t *testing.T) {
+	local := fs.NewMem()
+	ctx := context.Background()
+	keep := []string{
+		"/dst/myreport.pdf.tmp.bak", // user file with a non-integer suffix
+		"/dst/archive.pdf.tmp.pdf",  // ends in .pdf, not digits
+		"/dst/notes.pdf.tmp.notes",  // non-numeric suffix
+		"/dst/notes.pdf.TMP.1",      // uppercase; this program writes lowercase
+		"/dst/notes.pdf.tmp.",       // empty suffix (no digits)
+		"/dst/regular.pdf",          // a normal pdf
+	}
+	for _, p := range keep {
+		_ = local.WriteFile(ctx, p, []byte("keep"), 0o644)
+	}
+	reaped := []string{
+		"/dst/old.pdf.tmp.123",
+		"/dst/notes.pdf.tmp.1",
+		"/dst/sub/deep.pdf.tmp.42", // nested orphan
+	}
+	for _, p := range reaped {
+		_ = local.MkdirAll(ctx, filepath.Dir(p), 0o755)
+		_ = local.WriteFile(ctx, p, []byte("orphan"), 0o644)
+	}
+
+	if err := cleanStaleTemp(ctx, local, "/dst"); err != nil {
+		t.Fatalf("cleanStaleTemp: %v", err)
+	}
+
+	for _, p := range keep {
+		if _, err := local.Stat(ctx, p); err != nil {
+			t.Errorf("legitimate file wrongly deleted: %s: %v", p, err)
+		}
+	}
+	for _, p := range reaped {
+		if _, err := local.Stat(ctx, p); err == nil {
+			t.Errorf("orphan temp not reaped: %s", p)
+		}
+	}
+}
+
 func TestApplyContextCancelStopsWork(t *testing.T) {
 	local := fs.NewMem()
 	st := stats.New()
