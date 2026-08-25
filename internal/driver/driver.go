@@ -85,6 +85,23 @@ type TransformCtx struct {
 	Scratch  map[string]any // per-run scratch space shared between transforms
 }
 
+// RunTransforms applies ts in order over tctx, stopping at the first error
+// (wrapped with the transform's Name). It is the single execution path for a
+// driver's post-copy transforms so adding one is a localized change to the
+// driver's transform declaration, not a re-edit of the copy phase. Scratch
+// is initialized so transforms can share per-run state.
+func RunTransforms(ctx context.Context, tctx *TransformCtx, ts ...Transform) error {
+	if tctx != nil && tctx.Scratch == nil {
+		tctx.Scratch = map[string]any{}
+	}
+	for _, t := range ts {
+		if err := t.Apply(ctx, tctx); err != nil {
+			return fmt.Errorf("%s: %w", t.Name(), err)
+		}
+	}
+	return nil
+}
+
 // ErrDuplicateDriver is returned by Register for a repeated driver name.
 var ErrDuplicateDriver = errors.New("driver: duplicate registration")
 

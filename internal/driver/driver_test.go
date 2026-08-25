@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -79,5 +80,47 @@ func TestDefaultRegistryReset(t *testing.T) {
 	Reset()
 	if _, ok := Lookup("tmp"); ok {
 		t.Fatal("expected tmp gone after reset")
+	}
+}
+
+// fakeTransform records that it ran and can fail.
+type fakeTransform struct {
+	name string
+	err  error
+	ran  bool
+}
+
+func (f *fakeTransform) Name() string { return f.name }
+func (f *fakeTransform) Apply(_ context.Context, tctx *TransformCtx) error {
+	f.ran = true
+	return f.err
+}
+
+func TestRunTransformsAppliesInOrderStopsOnError(t *testing.T) {
+	t1 := &fakeTransform{name: "t1"}
+	t2 := &fakeTransform{name: "t2", err: errors.New("boom")}
+	t3 := &fakeTransform{name: "t3"}
+	tctx := &TransformCtx{}
+	err := RunTransforms(context.Background(), tctx, t1, t2, t3)
+	if err == nil || !strings.Contains(err.Error(), "t2") {
+		t.Fatalf("err = %v, want t2 wrapped", err)
+	}
+	if !t1.ran || !t2.ran {
+		t.Fatal("t1 and t2 should have run")
+	}
+	if t3.ran {
+		t.Fatal("t3 must not run after t2 failed")
+	}
+	if tctx.Scratch == nil {
+		t.Fatal("RunTransforms should initialize Scratch")
+	}
+}
+
+func TestRunTransformsEmptyAndNilTctx(t *testing.T) {
+	if err := RunTransforms(context.Background(), nil); err != nil {
+		t.Fatalf("empty nil-tctx: %v", err)
+	}
+	if err := RunTransforms(context.Background(), &TransformCtx{}); err != nil {
+		t.Fatalf("empty: %v", err)
 	}
 }

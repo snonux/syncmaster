@@ -115,21 +115,26 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 		return fmt.Errorf("fujifilm: copy jpeg: %w", err)
 	}
 
-	// Post-copy transform: geotag imported images.
-	geotag := &gpx.Geotag{
-		Runner:       env.Runner,
-		GPXDir:       cfg.GPXDir,
-		AllowMissing: cfg.AllowMissingGPS,
-	}
+	// Post-copy transforms (declared in one place; execution is centralized
+	// in driver.RunTransforms so adding a transform is a localized change).
 	tctx := &driver.TransformCtx{
 		Env:      env,
 		DestRoot: jpegDest,
 		Imported: imported,
 		Device:   dev,
 	}
-	if err := geotag.Apply(ctx, tctx); err != nil {
+	if err := driver.RunTransforms(ctx, tctx, d.transforms(env)...); err != nil {
 		return fmt.Errorf("fujifilm: %w", err)
 	}
 	_, _ = fmt.Fprintf(env.Out, "Imported files to: %s (JPEG/video), %s (RAW)\n", jpegDest, rawDest)
 	return nil
+}
+
+// transforms returns the driver's ordered post-copy transforms, constructed
+// from the run environment/config.
+func (d *Driver) transforms(env *driver.Env) []driver.Transform {
+	cfg := env.Config
+	return []driver.Transform{
+		&gpx.Geotag{Runner: env.Runner, GPXDir: cfg.GPXDir, AllowMissing: cfg.AllowMissingGPS},
+	}
 }

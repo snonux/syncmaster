@@ -70,7 +70,7 @@ func (Driver) Detect(ctx context.Context, env *driver.Env) ([]driver.Device, err
 }
 
 // Sync copies Note/Document folders and converts .note files to PDF.
-func (Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) error {
+func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) error {
 	cfg := env.Config
 	dest := cfg.SupernoteDestEffective()
 	log := func(format string, args ...any) { _, _ = fmt.Fprintf(env.Out, format+"\n", args...) }
@@ -129,10 +129,18 @@ func (Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) erro
 
 	log("It is safe to unplug the Supernote now if you eject/unmount it safely.")
 
-	conv := &note.Convert{Runner: env.Runner, Workers: cfg.ConvertParallelism}
-	if err := conv.Apply(ctx, &driver.TransformCtx{Env: env, DestRoot: dest, Device: dev}); err != nil {
+	tctx := &driver.TransformCtx{Env: env, DestRoot: dest, Device: dev}
+	if err := driver.RunTransforms(ctx, tctx, d.transforms(env)...); err != nil {
 		return fmt.Errorf("supernote: %w", err)
 	}
 	_, _ = fmt.Fprintf(env.Out, "Imported files to: %s\n", dest)
 	return nil
+}
+
+// transforms returns the driver's ordered post-copy transforms, constructed
+// from the run environment/config.
+func (Driver) transforms(env *driver.Env) []driver.Transform {
+	return []driver.Transform{
+		&note.Convert{Runner: env.Runner, Workers: env.Config.ConvertParallelism},
+	}
 }
