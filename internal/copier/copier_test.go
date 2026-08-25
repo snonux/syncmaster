@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -439,5 +440,51 @@ func TestSkipCtxCustomPolicy(t *testing.T) {
 	s, err = SkipExistingSize(SkipCtx{DestPath: "/dst/f.jpg", Local: local, Entry: Entry{Size: 99}})
 	if err != nil || s {
 		t.Fatalf("existing dest with different size should be copied: skip=%v err=%v", s, err)
+	}
+}
+
+func TestSkipExistingImportMeta(t *testing.T) {
+	ctx := context.Background()
+	writeDest := func(size int64) *fs.Mem {
+		l := fs.NewMem()
+		_ = l.WriteFile(ctx, "/dst/f.jpg", make([]byte, size), 0o644)
+		return l
+	}
+	writeSidecar := func(l *fs.Mem, srcSize int64) {
+		_ = l.WriteFile(ctx, "/dst/f.jpg"+ImportMetaSuffix, []byte(strconv.FormatInt(srcSize, 10)), 0o644)
+	}
+
+	// (1) dest size matches source: skip even without a sidecar (file not rewritten).
+	if s, err := SkipExistingImportMeta(SkipCtx{Ctx: ctx, DestPath: "/dst/f.jpg", Local: writeDest(10), Entry: Entry{Size: 10}}); err != nil || !s {
+		t.Fatalf("same size, no sidecar: skip=%v err=%v", s, err)
+	}
+
+	// (2) dest size drifted (in-place geotag rewrite) but sidecar records the
+	// original source size: skip — this is the s51 repro.
+	l := writeDest(8)   // dest rewritten smaller
+	writeSidecar(l, 10) // original source size was 10
+	if s, err := SkipExistingImportMeta(SkipCtx{Ctx: ctx, DestPath: "/dst/f.jpg", Local: l, Entry: Entry{Size: 10}}); err != nil || !s {
+		t.Fatalf("drifted dest + matching sidecar: skip=%v err=%v", s, err)
+	}
+
+	// (3) dest drifted and no sidecar: re-copy.
+	if s, err := SkipExistingImportMeta(SkipCtx{Ctx: ctx, DestPath: "/dst/f.jpg", Local: writeDest(8), Entry: Entry{Size: 10}}); err != nil || s {
+		t.Fatalf("drifted dest, no sidecar: skip=%v err=%v (want false)", s, err)
+	}
+
+	// (4) sidecar recorded size differs from current source (camera file
+	// changed): re-copy.
+	l = writeDest(8)
+	writeSidecar(l, 10) // old source size; current source is now 12
+	if s, err := SkipExistingImportMeta(SkipCtx{Ctx: ctx, DestPath: "/dst/f.jpg", Local: l, Entry: Entry{Size: 12}}); err != nil || s {
+		t.Fatalf("changed source vs sidecar: skip=%v err=%v (want false)", s, err)
+	}
+
+	// (5) dest missing (rolled back / user-deleted): re-copy, even if an orphan
+	// sidecar lingers.
+	l = fs.NewMem()
+	writeSidecar(l, 10)
+	if s, err := SkipExistingImportMeta(SkipCtx{Ctx: ctx, DestPath: "/dst/f.jpg", Local: l, Entry: Entry{Size: 10}}); err != nil || s {
+		t.Fatalf("missing dest + orphan sidecar: skip=%v err=%v (want false)", s, err)
 	}
 }

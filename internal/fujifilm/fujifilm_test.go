@@ -198,6 +198,92 @@ func TestSyncReplacesDifferentSize(t *testing.T) {
 	}
 }
 
+// TestSyncSkipsGeotaggedFileNextRun reproduces s51: after an in-place geotag
+// rewrites the imported file (dest size drifts), the next sync must SKIP the
+// file instead of re-copying it every run. The import-meta sidecar written at
+// copy time records the original source size, so the skip survives the rewrite.
+func TestSyncSkipsGeotaggedFileNextRun(t *testing.T) {
+	tree := newFakeTree()
+	tree.addFile("/src", "DSC0001.JPG", []byte("jpg")) // source size 3
+	tree.mounts = []string{"/src"}
+
+	cfg := baseCfg()
+	st := stats.New()
+	env := newEnv(t, nil, tree, st, cfg)
+	env.Source = writingSource{tree, env.Local}
+	d := &Driver{Media: media.Default()}
+
+	if err := d.Sync(context.Background(), driver.Device{Source: "/src"}, env); err != nil {
+		t.Fatalf("Sync run 1: %v", err)
+	}
+	if g := st.Get(stats.Copied); g != 1 {
+		t.Fatalf("run 1 Copied = %d, want 1", g)
+	}
+	// Simulate exiftool geotag rewriting the dest in place with a different
+	// size (the real exiftool drifts ~-52KB; the magnitude is irrelevant).
+	jpg := filepath.Join(cfg.FujifilmJPEGDest(), "DSC0001.JPG")
+	if err := env.Local.WriteFile(context.Background(), jpg, []byte("jpg-with-gps-tags"), 0o644); err != nil {
+		t.Fatalf("simulate geotag rewrite: %v", err)
+	}
+
+	// Run 2: same camera file (size 3) + drifted dest -> skip via the sidecar.
+	st2 := stats.New()
+	env.Stats = st2
+	if err := d.Sync(context.Background(), driver.Device{Source: "/src"}, env); err != nil {
+		t.Fatalf("Sync run 2: %v", err)
+	}
+	if g := st2.Get(stats.Copied); g != 0 {
+		t.Fatalf("run 2 Copied = %d, want 0 (geotagged file should skip)", g)
+	}
+	if g := st2.Get(stats.Skipped); g != 1 {
+		t.Fatalf("run 2 Skipped = %d, want 1", g)
+	}
+}
+
+// TestSyncRecopiesChangedCameraFile verifies that a camera file that changed
+// (different size) is re-copied even though an import-meta sidecar exists from
+// the prior run — preserving the changed-file re-copy property.
+func TestSyncRecopiesChangedCameraFile(t *testing.T) {
+	tree := newFakeTree()
+	tree.addFile("/src", "DSC0001.JPG", []byte("jpg")) // size 3
+	tree.mounts = []string{"/src"}
+
+	cfg := baseCfg()
+	st := stats.New()
+	env := newEnv(t, nil, tree, st, cfg)
+	env.Source = writingSource{tree, env.Local}
+	d := &Driver{Media: media.Default()}
+
+	if err := d.Sync(context.Background(), driver.Device{Source: "/src"}, env); err != nil {
+		t.Fatalf("Sync run 1: %v", err)
+	}
+	if g := st.Get(stats.Copied); g != 1 {
+		t.Fatalf("run 1 Copied = %d, want 1", g)
+	}
+
+	// Camera file replaced with a larger one (same name, new content/size).
+	tree2 := newFakeTree()
+	tree2.addFile("/src", "DSC0001.JPG", []byte("jpg-now-much-larger")) // size 19
+	tree2.mounts = []string{"/src"}
+	env.Source = writingSource{tree2, env.Local} // same dest fs as run 1
+
+	st2 := stats.New()
+	env.Stats = st2
+	if err := d.Sync(context.Background(), driver.Device{Source: "/src"}, env); err != nil {
+		t.Fatalf("Sync run 2: %v", err)
+	}
+	if g := st2.Get(stats.Skipped); g != 0 {
+		t.Fatalf("run 2 Skipped = %d, want 0 (changed file should re-copy)", g)
+	}
+	if g := st2.Get(stats.Copied); g != 1 {
+		t.Fatalf("run 2 Copied = %d, want 1", g)
+	}
+	got, _ := env.Local.ReadFile(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "DSC0001.JPG"))
+	if string(got) != "jpg-now-much-larger" {
+		t.Fatalf("dest content = %q, want the new camera content", got)
+	}
+}
+
 func TestSyncGeotagFailureRollsBack(t *testing.T) {
 	tree := newFakeTree()
 	tree.addFile("/src", "DSC0001.JPG", []byte("jpg"))

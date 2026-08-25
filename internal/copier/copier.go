@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"syncmaster/internal/clock"
@@ -252,6 +253,57 @@ func SkipUnchangedSizeMtime(sc SkipCtx) (bool, error) {
 		return false, nil
 	}
 	return de.ModTime.Unix() == sc.Entry.Modified.Unix(), nil
+}
+
+// ImportMetaSuffix is the sidecar written at import time (by a driver's
+// OnCopied hook) recording the source entry's size. SkipExistingImportMeta
+// uses it to dedup on the ORIGINAL source size, so a post-copy transform that
+// rewrites the dest in place (e.g. exiftool geotag, which drifts the dest
+// size) does not force a re-copy of a stable camera file every run.
+//
+// Once a file is imported it will NOT be re-processed by a post-copy
+// transform even if the conditions for that transform change later (e.g. GPX
+// tracks added after the fact): the sidecar makes the skip stick. Delete the
+// sidecar (or the dest file) to force a re-import. Pre-existing files that
+// predate this sidecar are re-imported once on the first run after deploy
+// (no sidecar -> re-copy -> sidecar written) and are stable thereafter. An
+// orphan sidecar left beside a missing dest (e.g. after a rollback removed
+// the dest) is ignored — a missing dest always re-copies.
+const ImportMetaSuffix = ".import-meta"
+
+// SkipExistingImportMeta skips when the dest exists and either its current
+// size matches the source (the file was not rewritten in place) or an
+// ImportMetaSuffix sidecar records that the source size matched the last
+// import. The sidecar leg survives an in-place rewrite that changes the dest
+// size. A missing dest, a size mismatch with no sidecar, or a sidecar whose
+// recorded size differs from the current source (the camera file changed)
+// triggers a re-copy.
+func SkipExistingImportMeta(sc SkipCtx) (bool, error) {
+	if sc.Ctx == nil {
+		sc.Ctx = context.Background()
+	}
+	de, err := sc.Local.Stat(sc.Ctx, sc.DestPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat %s: %w", sc.DestPath, err)
+	}
+	if de.Size == sc.Entry.Size {
+		return true, nil // unchanged on disk (no in-place rewrite)
+	}
+	meta, err := sc.Local.ReadFile(sc.Ctx, sc.DestPath+ImportMetaSuffix)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil // no sidecar: re-copy
+		}
+		return false, fmt.Errorf("read import-meta %s: %w", sc.DestPath+ImportMetaSuffix, err)
+	}
+	recorded, err := strconv.ParseInt(string(meta), 10, 64)
+	if err != nil {
+		return false, nil // corrupt sidecar: re-copy
+	}
+	return recorded == sc.Entry.Size, nil
 }
 
 func joinRel(rel, name string) string {

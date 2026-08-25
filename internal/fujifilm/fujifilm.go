@@ -6,6 +6,7 @@ package fujifilm
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"syncmaster/internal/copier"
 	"syncmaster/internal/driver"
@@ -81,6 +82,15 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	onCopied := func(p string, e copier.Entry) {
 		if reg.IsA("fujifilm-image", e.Name) {
 			imported = append(imported, p)
+			// Record the original source size so a later run can dedup despite
+			// the in-place geotag rewrite (gpx.Geotag runs exiftool
+			// -overwrite_original -P on every imported image/RAW), which drifts
+			// the dest size and would otherwise defeat size-based skip and
+			// force a re-copy of every geotagged file every run (s51). A failed
+			// sidecar write is logged but non-fatal: the next run re-copies.
+			if err := env.Local.WriteFile(ctx, p+copier.ImportMetaSuffix, []byte(strconv.FormatInt(e.Size, 10)), 0o644); err != nil {
+				_, _ = fmt.Fprintf(env.Err, "fujifilm: write import-meta %s: %v\n", p+copier.ImportMetaSuffix, err)
+			}
 		}
 	}
 	log := func(format string, args ...any) { _, _ = fmt.Fprintf(env.Out, format+"\n", args...) }
@@ -99,7 +109,7 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	}
 	if err := (&copier.Tree{
 		Src: env.Source, Local: env.Local, Clock: env.Clock,
-		Skip: copier.SkipExistingSize, Resolve: resolve,
+		Skip: copier.SkipExistingImportMeta, Resolve: resolve,
 		OnCopied: onCopied, Stats: env.Stats, Log: log,
 	}).CopyTree(ctx, dev.Source, jpegDest); err != nil {
 		return fmt.Errorf("fujifilm: copy: %w", err)
