@@ -50,19 +50,19 @@ type Env struct {
 	Config  *config.Config  // runtime config
 	Source  copier.Source   // remote tree (GVFS)
 	Mounts  MountFS         // device discovery
-	Local   fs.FS           // local filesystem (dest side, meta, rollback)
+	Local   fs.Store        // local filesystem (dest side, meta, rollback)
 	Clock   clock.Clock     // deterministic time
 	Runner  shell.Runner    // external commands (gio/exiftool/supernote-tool)
-	Stats   *stats.Stats    // shared, concurrency-safe
+	Stats   *stats.Counters // shared, concurrency-safe
 	Out     io.Writer       // progress log
 	Err     io.Writer       // error log
 	Drivers *Registry       // driver registry (dispatch); required for Run
 	Media   *media.Registry // file-class registry; drivers fall back to Default() if nil
 }
 
-// Driver discovers devices and syncs from one. Implement this + Register to
+// Plugin discovers devices and syncs from one. Implement this + Register to
 // add a sync feature. Description is shown in the help/usage text.
-type Driver interface {
+type Plugin interface {
 	Name() string
 	Description() string
 	Detect(ctx context.Context, env *Env) ([]Device, error)
@@ -126,11 +126,11 @@ func (l *WriterLogger) Error(format string, args ...any) {
 // fields explicitly bypass the Env reach-through entirely.
 type TransformCtx struct {
 	Env      *Env
-	Logger   Logger       // progress + error log (concurrency-safe)
-	Stats    *stats.Stats // shared, concurrency-safe counters
-	Local    fs.FS        // local filesystem (dest side, meta, rollback)
-	DestRoot string       // where copied files landed
-	Imported []string     // files of interest (e.g. images to geotag)
+	Logger   Logger          // progress + error log (concurrency-safe)
+	Stats    *stats.Counters // shared, concurrency-safe counters
+	Local    fs.Store        // local filesystem (dest side, meta, rollback)
+	DestRoot string          // where copied files landed
+	Imported []string        // files of interest (e.g. images to geotag)
 	Device   Device
 	Scratch  map[string]any // per-run scratch space shared between transforms
 }
@@ -189,16 +189,16 @@ var ErrDuplicateDriver = errors.New("driver: duplicate registration")
 // use a default registry.
 type Registry struct {
 	mu      sync.Mutex
-	drivers map[string]Driver
+	drivers map[string]Plugin
 }
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
-	return &Registry{drivers: map[string]Driver{}}
+	return &Registry{drivers: map[string]Plugin{}}
 }
 
 // Register adds a driver. Re-registering a name returns ErrDuplicateDriver.
-func (r *Registry) Register(d Driver) error {
+func (r *Registry) Register(d Plugin) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if d == nil {
@@ -213,7 +213,7 @@ func (r *Registry) Register(d Driver) error {
 }
 
 // Lookup returns a driver by name.
-func (r *Registry) Lookup(name string) (Driver, bool) {
+func (r *Registry) Lookup(name string) (Plugin, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	d, ok := r.drivers[name]
@@ -222,10 +222,10 @@ func (r *Registry) Lookup(name string) (Driver, bool) {
 
 // All returns every registered driver, sorted by name for deterministic
 // detection order in auto mode.
-func (r *Registry) All() []Driver {
+func (r *Registry) All() []Plugin {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]Driver, 0, len(r.drivers))
+	out := make([]Plugin, 0, len(r.drivers))
 	for _, d := range r.drivers {
 		out = append(out, d)
 	}
@@ -236,13 +236,13 @@ func (r *Registry) All() []Driver {
 var defaultRegistry = NewRegistry()
 
 // Register adds a driver to the default registry.
-func Register(d Driver) error { return defaultRegistry.Register(d) }
+func Register(d Plugin) error { return defaultRegistry.Register(d) }
 
 // Lookup returns a driver from the default registry.
-func Lookup(name string) (Driver, bool) { return defaultRegistry.Lookup(name) }
+func Lookup(name string) (Plugin, bool) { return defaultRegistry.Lookup(name) }
 
 // All returns all drivers from the default registry.
-func All() []Driver { return defaultRegistry.All() }
+func All() []Plugin { return defaultRegistry.All() }
 
 // Reset clears the default registry (tests only).
 func Reset() {

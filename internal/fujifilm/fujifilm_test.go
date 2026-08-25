@@ -64,7 +64,7 @@ func (t *fakeTree) ModifiedTime(context.Context, string) (time.Time, error) {
 // writingSource wraps a fakeTree so Copy writes content into a local fs.
 type writingSource struct {
 	*fakeTree
-	local fs.FS
+	local fs.Store
 }
 
 func (w writingSource) Copy(ctx context.Context, src, dst string) error {
@@ -74,7 +74,7 @@ func (w writingSource) Copy(ctx context.Context, src, dst string) error {
 	return w.local.WriteFile(ctx, dst, w.files[src], 0o644)
 }
 
-func newEnv(t *testing.T, src copier.Source, mounts driver.MountFS, st *stats.Stats, cfg config.Config) *driver.Env {
+func newEnv(t *testing.T, src copier.Source, mounts driver.MountFS, st *stats.Counters, cfg config.Config) *driver.Env {
 	t.Helper()
 	return &driver.Env{
 		Config: &cfg,

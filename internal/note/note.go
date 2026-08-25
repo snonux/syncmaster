@@ -75,7 +75,7 @@ type job struct {
 	meta string
 }
 
-func (c *Convert) enqueue(ctx context.Context, local fs.FS, root string, tctx *driver.TransformCtx) ([]job, error) {
+func (c *Convert) enqueue(ctx context.Context, local fs.Store, root string, tctx *driver.TransformCtx) ([]job, error) {
 	var jobs []job
 	err := local.WalkDir(ctx, root, func(path string, e fs.Entry) error {
 		if err := ctx.Err(); err != nil {
@@ -111,7 +111,7 @@ func changeNoteExt(root, rel string) string {
 	return filepath.Join(root, base+".pdf")
 }
 
-func pdfCurrent(ctx context.Context, local fs.FS, notePath, pdfPath, metaPath string) bool {
+func pdfCurrent(ctx context.Context, local fs.Store, notePath, pdfPath, metaPath string) bool {
 	if _, err := local.Stat(ctx, pdfPath); err != nil {
 		return false
 	}
@@ -130,7 +130,7 @@ func signature(size int64, mtime int64) string {
 	return fmt.Sprintf("size=%d\nmtime=%d\n", size, mtime)
 }
 
-func cleanStaleTemp(ctx context.Context, local fs.FS, root string) error {
+func cleanStaleTemp(ctx context.Context, local fs.Store, root string) error {
 	return local.WalkDir(ctx, root, func(path string, e fs.Entry) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -145,7 +145,7 @@ func cleanStaleTemp(ctx context.Context, local fs.FS, root string) error {
 	})
 }
 
-func (c *Convert) runWorkers(ctx context.Context, local fs.FS, conv Converter, jobs []job, tctx *driver.TransformCtx) {
+func (c *Convert) runWorkers(ctx context.Context, local fs.Store, conv Converter, jobs []job, tctx *driver.TransformCtx) {
 	if len(jobs) == 0 {
 		return
 	}
@@ -191,7 +191,7 @@ func (c *Convert) runWorkers(ctx context.Context, local fs.FS, conv Converter, j
 // convertEnv bundles the per-worker dependencies handed to convertOne so its
 // signature stays small.
 type convertEnv struct {
-	local   fs.FS
+	local   fs.Store
 	conv    Converter
 	tctx    *driver.TransformCtx
 	counter *atomic.Int64

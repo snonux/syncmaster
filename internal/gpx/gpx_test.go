@@ -47,7 +47,7 @@ func hasPair(args []string, val string) bool {
 	return false
 }
 
-func newEnv(st *stats.Stats) *driver.Env {
+func newEnv(st *stats.Counters) *driver.Env {
 	return &driver.Env{Local: fs.NewMem(), Stats: st, Out: new(bytes.Buffer), Err: new(bytes.Buffer)}
 }
 

@@ -67,7 +67,7 @@ func TestRunAbortDuringSync(t *testing.T) {
 	}
 }
 
-func newApp(st *stats.Stats, cfg config.Config) *App {
+func newApp(st *stats.Counters, cfg config.Config) *App {
 	return &App{Env: &driver.Env{
 		Config:  &cfg,
 		Drivers: driver.NewRegistry(),

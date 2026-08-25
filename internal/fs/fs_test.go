@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func collectWalk(t *testing.T, m FS, root string) []string {
+func collectWalk(t *testing.T, m Store, root string) []string {
 	t.Helper()
 	var paths []string
 	if err := m.WalkDir(context.Background(), root, func(p string, _ Entry) error {

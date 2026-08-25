@@ -125,7 +125,7 @@ func (g *Geotag) handleMissing(ctx context.Context, missing []string, tctx *driv
 	return fmt.Errorf("%w (%d image(s))", ErrMissingGPS, len(missing))
 }
 
-func (g *Geotag) findTracks(ctx context.Context, local fs.FS) ([]string, error) {
+func (g *Geotag) findTracks(ctx context.Context, local fs.Store) ([]string, error) {
 	var tracks []string
 	err := local.WalkDir(ctx, g.GPXDir, func(path string, e fs.Entry) error {
 		if e.IsDir {

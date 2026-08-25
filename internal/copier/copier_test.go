@@ -52,7 +52,7 @@ func (s *memSource) Copy(_ context.Context, src, dst string) error {
 // copyWritingSource wraps a Source so Copy also writes the file to the local FS.
 type copyWritingSource struct {
 	*memSource
-	local fs.FS
+	local fs.Store
 }
 
 func (s copyWritingSource) Copy(ctx context.Context, src, dst string) error {
@@ -78,7 +78,7 @@ func TestCopyTreeCopiesAll(t *testing.T) {
 	src := buildTree(t)
 	local := fs.NewMem()
 	st := stats.New()
-	c := &Copier{
+	c := &Tree{
 		Src:   copyWritingSource{src, local},
 		Local: local,
 		Stats: st,
@@ -107,7 +107,7 @@ func TestCopyTreeMirrorsEmptyDirsWithNilResolver(t *testing.T) {
 	src.addFile("/src", "a.txt", 1, time.Unix(1, 0), []byte("a"))
 	local := fs.NewMem()
 	st := stats.New()
-	c := &Copier{Src: copyWritingSource{src, local}, Local: local, Stats: st}
+	c := &Tree{Src: copyWritingSource{src, local}, Local: local, Stats: st}
 	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
 		t.Fatalf("CopyTree: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestCopyTreeResolverEmptyRelPathErrors(t *testing.T) {
 	src.addFile("/src", "a.txt", 1, time.Unix(1, 0), []byte("a"))
 	local := fs.NewMem()
 	st := stats.New()
-	c := &Copier{
+	c := &Tree{
 		Src:     copyWritingSource{src, local},
 		Local:   local,
 		Stats:   st,
@@ -136,7 +136,7 @@ func TestCopyTreeResolverExcludes(t *testing.T) {
 	src := buildTree(t)
 	local := fs.NewMem()
 	st := stats.New()
-	c := &Copier{
+	c := &Tree{
 		Src:   copyWritingSource{src, local},
 		Local: local,
 		Stats: st,
@@ -181,7 +181,7 @@ func TestCopyTreeMultiRootRouting(t *testing.T) {
 	src.addFile("/src", "readme.txt", 4, mt, []byte("skip"))
 	local := fs.NewMem()
 	st := stats.New()
-	c := &Copier{
+	c := &Tree{
 		Src:   copyWritingSource{src, local},
 		Local: local,
 		Stats: st,
@@ -221,7 +221,7 @@ func TestCopyTreeSkipExistingName(t *testing.T) {
 	local := fs.NewMem()
 	_ = local.WriteFile(context.Background(), "/dst/a.jpg", []byte("x"), 0o644)
 	st := stats.New()
-	c := &Copier{
+	c := &Tree{
 		Src:   copyWritingSource{src, local},
 		Local: local,
 		Stats: st,
@@ -249,7 +249,7 @@ func TestCopyTreeSkipExistingSize(t *testing.T) {
 	// b.jpg: different size (2 vs 5) — should be re-copied.
 	local.WriteFileAt("/dst/b.jpg", []byte("yy"), mt)
 	st := stats.New()
-	c := &Copier{
+	c := &Tree{
 		Src:   copyWritingSource{src, local},
 		Local: local,
 		Stats: st,
@@ -278,7 +278,7 @@ func TestCopyTreeSkipUnchangedSizeMtime(t *testing.T) {
 	local := fs.NewMem()
 	local.WriteFileAt("/dst/a.txt", []byte("aaa"), mt) // matches size+mtime
 	st := stats.New()
-	c := &Copier{
+	c := &Tree{
 		Src:   copyWritingSource{src, local},
 		Local: local,
 		Stats: st,
@@ -302,7 +302,7 @@ func TestCopyTreeSkipUnchangedReplacesWhenChanged(t *testing.T) {
 	local := fs.NewMem()
 	local.WriteFileAt("/dst/a.txt", []byte("old"), time.Unix(999, 0)) // different size+mtime
 	st := stats.New()
-	c := &Copier{
+	c := &Tree{
 		Src:   copyWritingSource{src, local},
 		Local: local,
 		Stats: st,
@@ -325,7 +325,7 @@ func TestCopyTreeOnCopied(t *testing.T) {
 	local := fs.NewMem()
 	st := stats.New()
 	var copied []string
-	c := &Copier{
+	c := &Tree{
 		Src:      copyWritingSource{src, local},
 		Local:    local,
 		Stats:    st,
@@ -344,7 +344,7 @@ func TestCopyTreeCopyFailureIncrementsFailed(t *testing.T) {
 	st := stats.New()
 	// Source whose Copy always fails.
 	failing := &failingSource{src}
-	c := &Copier{Src: failing, Local: local, Stats: st}
+	c := &Tree{Src: failing, Local: local, Stats: st}
 	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
 		t.Fatalf("CopyTree: %v", err)
 	}
@@ -359,18 +359,18 @@ func TestCopyTreeContextCancel(t *testing.T) {
 	st := stats.New()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	c := &Copier{Src: copyWritingSource{src, local}, Local: local, Stats: st}
+	c := &Tree{Src: copyWritingSource{src, local}, Local: local, Stats: st}
 	if err := c.CopyTree(ctx, "/src", "/dst"); err == nil {
 		t.Fatal("expected context cancellation error")
 	}
 }
 
 func TestCopyTreeNilDeps(t *testing.T) {
-	c := &Copier{Local: fs.NewMem(), Stats: stats.New()}
+	c := &Tree{Local: fs.NewMem(), Stats: stats.New()}
 	if err := c.CopyTree(context.Background(), "/src", "/dst"); err == nil {
 		t.Fatal("expected error for nil Src")
 	}
-	c2 := &Copier{Src: newMemSource(), Stats: stats.New()}
+	c2 := &Tree{Src: newMemSource(), Stats: stats.New()}
 	if err := c2.CopyTree(context.Background(), "/src", "/dst"); err == nil {
 		t.Fatal("expected error for nil Local")
 	}
@@ -396,7 +396,7 @@ func TestCopyTreeAbortMidCopy(t *testing.T) {
 	local := fs.NewMem()
 	st := stats.New()
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Copier{Src: blockingSource{src}, Local: local, Stats: st}
+	c := &Tree{Src: blockingSource{src}, Local: local, Stats: st}
 
 	done := make(chan error, 1)
 	go func() { done <- c.CopyTree(ctx, "/src", "/dst") }()

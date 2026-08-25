@@ -20,7 +20,7 @@ type Driver struct {
 	Media *media.Registry
 }
 
-var _ driver.Driver = (*Driver)(nil)
+var _ driver.Plugin = (*Driver)(nil)
 
 // Name returns the driver name.
 func (d *Driver) Name() string { return "fujifilm" }
@@ -97,7 +97,7 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 		}
 		return "", "", false
 	}
-	if err := (&copier.Copier{
+	if err := (&copier.Tree{
 		Src: env.Source, Local: env.Local, Clock: env.Clock,
 		Skip: copier.SkipExistingSize, Resolve: resolve,
 		OnCopied: onCopied, Stats: env.Stats, Log: log,

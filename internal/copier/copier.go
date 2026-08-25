@@ -40,7 +40,7 @@ type SkipCtx struct {
 	Src      Source
 	Entry    Entry
 	DestPath string
-	Local    fs.FS
+	Local    fs.Store
 	Clock    clock.Clock
 }
 
@@ -56,15 +56,15 @@ type SkipPolicy func(sc SkipCtx) (bool, error)
 // source-relative path (e.RelPath), mirroring the source tree structure.
 type DestResolver func(e Entry) (root, relPath string, include bool)
 
-// Copier performs a recursive copy from a Source to a local root.
-type Copier struct {
+// Tree performs a recursive copy from a Source to a local root.
+type Tree struct {
 	Src      Source
-	Local    fs.FS
+	Local    fs.Store
 	Clock    clock.Clock
 	Skip     SkipPolicy
 	Resolve  DestResolver
 	OnCopied func(destPath string, e Entry) // optional, invoked after a successful copy
-	Stats    *stats.Stats
+	Stats    *stats.Counters
 	Log      func(format string, args ...any) // optional progress logger
 }
 
@@ -72,7 +72,7 @@ type Copier struct {
 // destination root used when Resolve is nil or returns an empty root; a
 // Resolve that returns its own root routes an entry elsewhere (single-pass
 // multi-root).
-func (c *Copier) CopyTree(ctx context.Context, srcDir, dstRoot string) error {
+func (c *Tree) CopyTree(ctx context.Context, srcDir, dstRoot string) error {
 	if c.Src == nil {
 		return fmt.Errorf("copier: nil Source")
 	}
@@ -88,7 +88,7 @@ func (c *Copier) CopyTree(ctx context.Context, srcDir, dstRoot string) error {
 	return c.copyDir(ctx, srcDir, "", dstRoot)
 }
 
-func (c *Copier) copyDir(ctx context.Context, srcDir, rel, dstRoot string) error {
+func (c *Tree) copyDir(ctx context.Context, srcDir, rel, dstRoot string) error {
 	entries, err := c.Src.List(ctx, srcDir)
 	if err != nil {
 		return fmt.Errorf("list %s: %w", srcDir, err)
@@ -128,7 +128,7 @@ func (c *Copier) copyDir(ctx context.Context, srcDir, rel, dstRoot string) error
 // and relative path, apply the skip policy, replace any existing file, then
 // copy. A copy failure is counted as stats.Failed and returns nil so the
 // parent loop continues.
-func (c *Copier) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) error {
+func (c *Tree) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) error {
 	root, relPath, include := "", e.RelPath, true
 	if c.Resolve != nil {
 		root, relPath, include = c.Resolve(e)
@@ -179,7 +179,7 @@ func (c *Copier) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) 
 	return nil
 }
 
-func (c *Copier) applySkip(ctx context.Context, e Entry, destPath string) (bool, error) {
+func (c *Tree) applySkip(ctx context.Context, e Entry, destPath string) (bool, error) {
 	if c.Skip == nil {
 		return false, nil
 	}
@@ -190,7 +190,7 @@ func (c *Copier) applySkip(ctx context.Context, e Entry, destPath string) (bool,
 	return c.Skip(SkipCtx{Ctx: ctx, Src: c.Src, Entry: e, DestPath: destPath, Local: c.Local, Clock: clk})
 }
 
-func (c *Copier) logf(format string, args ...any) {
+func (c *Tree) logf(format string, args ...any) {
 	if c.Log != nil {
 		c.Log(format, args...)
 	}

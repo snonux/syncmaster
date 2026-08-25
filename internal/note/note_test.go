@@ -39,7 +39,7 @@ func (f *fakeConverter) Convert(_ context.Context, note, out string) error {
 	return nil
 }
 
-func newEnv(local *fs.Mem, st *stats.Stats) *driver.Env {
+func newEnv(local *fs.Mem, st *stats.Counters) *driver.Env {
 	return &driver.Env{Local: local, Stats: st, Out: new(bytes.Buffer), Err: new(bytes.Buffer)}
 }
 

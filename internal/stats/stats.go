@@ -38,17 +38,17 @@ func (k Kind) String() string {
 	return kindNames[k]
 }
 
-// Stats is a set of atomic counters. The zero value is not usable because
+// Counters is a set of atomic counters. The zero value is not usable because
 // atomic.Int64 must not be copied; construct with New.
-type Stats struct {
+type Counters struct {
 	counts [numKinds]atomic.Int64
 }
 
-// New returns an empty Stats.
-func New() *Stats { return &Stats{} }
+// New returns an empty Counters.
+func New() *Counters { return &Counters{} }
 
 // Inc adds n to the counter for k. A nil receiver is a no-op.
-func (s *Stats) Inc(k Kind, n int64) {
+func (s *Counters) Inc(k Kind, n int64) {
 	if s == nil || k < 0 || int(k) >= int(numKinds) {
 		return
 	}
@@ -56,7 +56,7 @@ func (s *Stats) Inc(k Kind, n int64) {
 }
 
 // Get loads the current value of the counter for k.
-func (s *Stats) Get(k Kind) int64 {
+func (s *Counters) Get(k Kind) int64 {
 	if s == nil || k < 0 || int(k) >= int(numKinds) {
 		return 0
 	}
@@ -64,7 +64,7 @@ func (s *Stats) Get(k Kind) int64 {
 }
 
 // Snapshot returns a copy of all counters.
-func (s *Stats) Snapshot() map[Kind]int64 {
+func (s *Counters) Snapshot() map[Kind]int64 {
 	out := make(map[Kind]int64, numKinds)
 	for k := Kind(0); k < numKinds; k++ {
 		out[k] = s.Get(k)
@@ -73,7 +73,7 @@ func (s *Stats) Snapshot() map[Kind]int64 {
 }
 
 // String returns the one-line summary used by the orchestrator.
-func (s *Stats) String() string {
+func (s *Counters) String() string {
 	return fmt.Sprintf(
 		"found=%d copied=%d skipped=%d failed=%d converted=%d convert-skipped=%d",
 		s.Get(Found), s.Get(Copied), s.Get(Skipped),

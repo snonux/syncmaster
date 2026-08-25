@@ -16,7 +16,7 @@ import (
 // Driver syncs from a Supernote Nomad mounted via GVFS (MTP).
 type Driver struct{}
 
-var _ driver.Driver = (*Driver)(nil)
+var _ driver.Plugin = (*Driver)(nil)
 
 // Name returns the driver name.
 func (Driver) Name() string { return "supernote" }
@@ -91,7 +91,7 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 	_, _ = fmt.Fprintf(env.Out, "Device: Supernote Nomad\nSource: %s\nDestination: %s\n", noteRoot, dest)
 	log("Importing the Supernote Note folder.")
 
-	cc := &copier.Copier{
+	cc := &copier.Tree{
 		Src:   env.Source,
 		Local: env.Local,
 		Clock: env.Clock,
@@ -116,7 +116,7 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 		}
 		_, _ = fmt.Fprintf(env.Out, "Source: %s\nKOReader destination: %s\n", documentRoot, koDest)
 		log("Importing the Supernote Document folder (KOReader books + .sdr sidecars).")
-		if err := (&copier.Copier{
+		if err := (&copier.Tree{
 			Src: env.Source, Local: env.Local, Clock: env.Clock,
 			Skip: copier.SkipUnchangedSizeMtime, Stats: env.Stats, Log: log,
 		}).CopyTree(ctx, documentRoot, koDest); err != nil {

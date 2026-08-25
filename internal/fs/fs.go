@@ -1,5 +1,5 @@
 // Package fs is the seam over the local filesystem. All dest-side operations
-// (stat, mkdir, remove, rename, read/write file, walk) go through FS so copier
+// (stat, mkdir, remove, rename, read/write file, walk) go through Store so copier
 // skip policies, note meta read/write, and geotag rollback are unit-testable
 // without touching disk.
 package fs
@@ -27,12 +27,12 @@ type Entry struct {
 	ModTime time.Time
 }
 
-// FS is the local-filesystem interface used throughout syncmaster. Every
+// Store is the local-filesystem interface used throughout syncmaster. Every
 // method takes a context as its first parameter so callers can cancel
 // in-flight walks/stats/writes (e.g. on Ctrl+C abort); the in-memory Mem
 // implementation ignores it, while OS checks ctx.Err() before each os call
 // and aborts WalkDir on cancellation.
-type FS interface {
+type Store interface {
 	Stat(ctx context.Context, path string) (Entry, error)
 	MkdirAll(ctx context.Context, path string, perm os.FileMode) error
 	Remove(ctx context.Context, path string) error
@@ -43,10 +43,10 @@ type FS interface {
 	WalkDir(ctx context.Context, root string, fn func(path string, e Entry) error) error
 }
 
-// OS is the production FS backed by the os package.
+// OS is the production Store backed by the os package.
 type OS struct{}
 
-var _ FS = (*OS)(nil)
+var _ Store = (*OS)(nil)
 
 // Stat wraps os.Stat.
 func (OS) Stat(ctx context.Context, path string) (Entry, error) {
@@ -165,7 +165,7 @@ func entriesFromDirEntries(_ string, des []os.DirEntry) []Entry {
 	return out
 }
 
-// Mem is an in-memory FS for tests. Files are stored as byte slices; dirs are
+// Mem is an in-memory Store for tests. Files are stored as byte slices; dirs are
 // implicit (created by WriteFile/MkdirAll). All paths are normalized with
 // filepath.Clean. Mem is safe for concurrent use.
 type Mem struct {
@@ -174,14 +174,14 @@ type Mem struct {
 	dirs  map[string]struct{}
 }
 
-var _ FS = (*Mem)(nil)
+var _ Store = (*Mem)(nil)
 
 type memFile struct {
 	data    []byte
 	modtime time.Time
 }
 
-// NewMem returns an empty in-memory FS.
+// NewMem returns an empty in-memory Store.
 func NewMem() *Mem {
 	return &Mem{files: map[string]*memFile{}, dirs: map[string]struct{}{}}
 }

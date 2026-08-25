@@ -33,7 +33,7 @@ func TestIncNegative(t *testing.T) {
 func TestIncOutOfBoundsAndNil(t *testing.T) {
 	New().Inc(Kind(-1), 1)
 	New().Inc(numKinds, 1)
-	var nilStats *Stats
+	var nilStats *Counters
 	nilStats.Inc(Found, 1) // must not panic
 	if g := nilStats.Get(Found); g != 0 {
 		t.Fatalf("nil Get = %d, want 0", g)

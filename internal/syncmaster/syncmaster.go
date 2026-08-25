@@ -60,7 +60,7 @@ func (a *App) drivers() (*driver.Registry, error) {
 	return a.Env.Drivers, nil
 }
 
-func (a *App) runOne(ctx context.Context, d driver.Driver) error {
+func (a *App) runOne(ctx context.Context, d driver.Plugin) error {
 	devs, err := d.Detect(ctx, a.Env)
 	if err != nil {
 		return err
