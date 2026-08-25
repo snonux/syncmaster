@@ -2,4 +2,4 @@
 package internal
 
 // Version is the current version of syncmaster, printed by -version.
-const Version = "0.1.0"
+const Version = "0.1.1"
