@@ -99,6 +99,39 @@ func TestCopyTreeCopiesAll(t *testing.T) {
 	}
 }
 
+func TestCopyTreeMirrorsEmptyDirsWithNilResolver(t *testing.T) {
+	// With no custom resolver, empty source dirs are mirrored under the
+	// default root to preserve faithful backups (e.g. Supernote folders).
+	src := newMemSource()
+	src.addDir("/src", "empty")
+	src.addFile("/src", "a.txt", 1, time.Unix(1, 0), []byte("a"))
+	local := fs.NewMem()
+	st := stats.New()
+	c := &Copier{Src: copyWritingSource{src, local}, Local: local, Stats: st}
+	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
+		t.Fatalf("CopyTree: %v", err)
+	}
+	if _, err := local.Stat("/dst/empty"); err != nil {
+		t.Fatalf("empty source dir should be mirrored: %v", err)
+	}
+}
+
+func TestCopyTreeResolverEmptyRelPathErrors(t *testing.T) {
+	src := newMemSource()
+	src.addFile("/src", "a.txt", 1, time.Unix(1, 0), []byte("a"))
+	local := fs.NewMem()
+	st := stats.New()
+	c := &Copier{
+		Src:     copyWritingSource{src, local},
+		Local:   local,
+		Stats:   st,
+		Resolve: func(e Entry) (string, string, bool) { return "/dst", "", true },
+	}
+	if err := c.CopyTree(context.Background(), "/src", "/dst"); err == nil {
+		t.Fatal("expected error for resolver returning empty relPath")
+	}
+}
+
 func TestCopyTreeResolverExcludes(t *testing.T) {
 	src := buildTree(t)
 	local := fs.NewMem()
@@ -107,12 +140,12 @@ func TestCopyTreeResolverExcludes(t *testing.T) {
 		Src:   copyWritingSource{src, local},
 		Local: local,
 		Stats: st,
-		Resolve: func(e Entry) (string, bool) {
-			// include only .jpg files
+		Resolve: func(e Entry) (string, string, bool) {
+			// include only .jpg files, mirroring them under the default dstRoot.
 			if filepath.Ext(e.Name) == ".jpg" {
-				return e.Name, true
+				return "", e.RelPath, true
 			}
-			return "", false
+			return "", "", false
 		},
 	}
 	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
@@ -126,6 +159,60 @@ func TestCopyTreeResolverExcludes(t *testing.T) {
 	}
 	if _, err := local.Stat("/dst/a.jpg"); err != nil {
 		t.Fatalf("a.jpg missing: %v", err)
+	}
+	// Nested .jpg mirrors under the default root via e.RelPath.
+	if _, err := local.Stat("/dst/sub/c.jpg"); err != nil {
+		t.Fatalf("nested c.jpg missing: %v", err)
+	}
+}
+
+func TestCopyTreeMultiRootRouting(t *testing.T) {
+	// A single CopyTree pass routes entries to multiple destination roots via
+	// the resolver (e.g. RAW -> /raw, JPEG/video -> /jpg), preserving the
+	// source tree structure under each root. The default dstRoot is unused
+	// because the resolver always returns an explicit root.
+	src := newMemSource()
+	mt := time.Unix(1000, 0)
+	src.addDir("/src", "DCIM")
+	src.addFile("/src", "DSC0001.RAF", 3, mt, []byte("raw"))
+	src.addFile("/src", "DSC0002.JPG", 3, mt, []byte("jpg"))
+	src.addFile("/src/DCIM", "DSC0003.RAF", 3, mt, []byte("raw3"))
+	src.addFile("/src/DCIM", "clip.MOV", 3, mt, []byte("mov"))
+	src.addFile("/src", "readme.txt", 4, mt, []byte("skip"))
+	local := fs.NewMem()
+	st := stats.New()
+	c := &Copier{
+		Src:   copyWritingSource{src, local},
+		Local: local,
+		Stats: st,
+		Skip:  SkipExistingSize,
+		Resolve: func(e Entry) (string, string, bool) {
+			if filepath.Ext(e.Name) == ".RAF" {
+				return "/raw", e.RelPath, true
+			}
+			if filepath.Ext(e.Name) == ".JPG" || filepath.Ext(e.Name) == ".MOV" {
+				return "/jpg", e.RelPath, true
+			}
+			return "", "", false
+		},
+	}
+	if err := c.CopyTree(context.Background(), "/src", "/unused"); err != nil {
+		t.Fatalf("CopyTree: %v", err)
+	}
+	if g := st.Get(stats.Found); g != 4 {
+		t.Fatalf("Found = %d, want 4", g)
+	}
+	if g := st.Get(stats.Copied); g != 4 {
+		t.Fatalf("Copied = %d, want 4", g)
+	}
+	for _, p := range []string{"/raw/DSC0001.RAF", "/raw/DCIM/DSC0003.RAF", "/jpg/DSC0002.JPG", "/jpg/DCIM/clip.MOV"} {
+		if _, err := local.Stat(p); err != nil {
+			t.Fatalf("missing %s: %v", p, err)
+		}
+	}
+	// Excluded and the unused default root should not receive anything.
+	if _, err := local.Stat("/unused/readme.txt"); err == nil {
+		t.Fatal("readme.txt should be excluded")
 	}
 }
 

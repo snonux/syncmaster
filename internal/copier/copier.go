@@ -47,9 +47,14 @@ type SkipCtx struct {
 // SkipPolicy decides whether to skip copying an entry. Returning true skips.
 type SkipPolicy func(sc SkipCtx) (bool, error)
 
-// DestResolver maps an entry to a destination path relative to the copy root.
-// include=false excludes the entry entirely (not counted as found).
-type DestResolver func(e Entry) (destRelPath string, include bool)
+// DestResolver maps an entry to its destination root and the path relative
+// to that root (relPath). include=false excludes the entry entirely (not
+// counted as found). A single CopyTree pass can route entries to multiple
+// roots (e.g. RAW files to rawDest, JPEG/video to jpegDest) by returning the
+// appropriate root per entry; an empty root falls back to the CopyTree's
+// dstRoot. When Resolve is nil, entries copy to dstRoot at their
+// source-relative path (e.RelPath), mirroring the source tree structure.
+type DestResolver func(e Entry) (root, relPath string, include bool)
 
 // Copier performs a recursive copy from a Source to a local root.
 type Copier struct {
@@ -63,7 +68,10 @@ type Copier struct {
 	Log      func(format string, args ...any) // optional progress logger
 }
 
-// CopyTree recursively copies srcDir into dstRoot.
+// CopyTree recursively copies srcDir into dstRoot. dstRoot is the default
+// destination root used when Resolve is nil or returns an empty root; a
+// Resolve that returns its own root routes an entry elsewhere (single-pass
+// multi-root).
 func (c *Copier) CopyTree(ctx context.Context, srcDir, dstRoot string) error {
 	if c.Src == nil {
 		return fmt.Errorf("copier: nil Source")
@@ -77,10 +85,10 @@ func (c *Copier) CopyTree(ctx context.Context, srcDir, dstRoot string) error {
 	if err := c.Local.MkdirAll(dstRoot, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dstRoot, err)
 	}
-	return c.copyDir(ctx, srcDir, dstRoot, "")
+	return c.copyDir(ctx, srcDir, "", dstRoot)
 }
 
-func (c *Copier) copyDir(ctx context.Context, srcDir, dstDir, rel string) error {
+func (c *Copier) copyDir(ctx context.Context, srcDir, rel, dstRoot string) error {
 	entries, err := c.Src.List(ctx, srcDir)
 	if err != nil {
 		return fmt.Errorf("list %s: %w", srcDir, err)
@@ -93,36 +101,50 @@ func (c *Copier) copyDir(ctx context.Context, srcDir, dstDir, rel string) error 
 		srcPath := joinPath(srcDir, e.Name)
 
 		if e.IsDir {
-			dstSub := joinPath(dstDir, e.Name)
-			if err := c.Local.MkdirAll(dstSub, 0o755); err != nil {
-				return fmt.Errorf("mkdir %s: %w", dstSub, err)
+			// When no custom resolver is set, mirror the source tree structure
+			// under the default root — including empty dirs — to preserve
+			// faithful backups (e.g. Supernote Note/Document folders). Custom
+			// multi-root resolvers create their destination dirs on demand per
+			// copied file instead.
+			if c.Resolve == nil {
+				dstSub := joinPath(dstRoot, e.RelPath)
+				if err := c.Local.MkdirAll(dstSub, 0o755); err != nil {
+					return fmt.Errorf("mkdir %s: %w", dstSub, err)
+				}
 			}
-			if err := c.copyDir(ctx, srcPath, dstSub, e.RelPath); err != nil {
+			if err := c.copyDir(ctx, srcPath, e.RelPath, dstRoot); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := c.copyOne(ctx, e, srcPath, dstDir); err != nil {
+		if err := c.copyOne(ctx, e, srcPath, dstRoot); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// copyOne handles a single non-directory entry: resolve its destination name,
-// apply the skip policy, replace any existing file, then copy. A copy failure
-// is counted as stats.Failed and returns nil so the parent loop continues.
-func (c *Copier) copyOne(ctx context.Context, e Entry, srcPath, dstDir string) error {
-	destRel, include := e.Name, true
+// copyOne handles a single non-directory entry: resolve its destination root
+// and relative path, apply the skip policy, replace any existing file, then
+// copy. A copy failure is counted as stats.Failed and returns nil so the
+// parent loop continues.
+func (c *Copier) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) error {
+	root, relPath, include := "", e.RelPath, true
 	if c.Resolve != nil {
-		destRel, include = c.Resolve(e)
+		root, relPath, include = c.Resolve(e)
 	}
 	if !include {
 		return nil
 	}
+	if relPath == "" {
+		return fmt.Errorf("copier: resolver returned empty relPath for %q", e.Name)
+	}
 	c.Stats.Inc(stats.Found, 1)
+	if root == "" {
+		root = dstRoot
+	}
 
-	destPath := joinPath(dstDir, destRel)
+	destPath := joinPath(root, relPath)
 	if err := c.Local.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir parent %s: %w", filepath.Dir(destPath), err)
 	}

@@ -85,34 +85,24 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	}
 	log := func(format string, args ...any) { _, _ = fmt.Fprintf(env.Out, format+"\n", args...) }
 
-	// Pass 1: RAW files -> rawDest.
-	rawResolve := func(e copier.Entry) (string, bool) {
+	// Single pass over the camera tree: route each file to its destination root
+	// (RAW -> rawDest, JPEG/video -> jpegDest) via the resolver, halving the
+	// gphoto2 list round-trips the previous two-pass walk made.
+	resolve := func(e copier.Entry) (string, string, bool) {
 		if reg.IsA("raw", e.Name) {
-			return e.Name, true
+			return rawDest, e.RelPath, true
 		}
-		return "", false
+		if reg.IsA("fujifilm-media", e.Name) { // raw already routed above
+			return jpegDest, e.RelPath, true
+		}
+		return "", "", false
 	}
 	if err := (&copier.Copier{
 		Src: env.Source, Local: env.Local, Clock: env.Clock,
-		Skip: copier.SkipExistingSize, Resolve: rawResolve,
-		OnCopied: onCopied, Stats: env.Stats, Log: log,
-	}).CopyTree(ctx, dev.Source, rawDest); err != nil {
-		return fmt.Errorf("fujifilm: copy raw: %w", err)
-	}
-
-	// Pass 2: JPEG/video -> jpegDest (RAW already handled).
-	jpegResolve := func(e copier.Entry) (string, bool) {
-		if reg.IsA("fujifilm-media", e.Name) && !reg.IsA("raw", e.Name) {
-			return e.Name, true
-		}
-		return "", false
-	}
-	if err := (&copier.Copier{
-		Src: env.Source, Local: env.Local, Clock: env.Clock,
-		Skip: copier.SkipExistingSize, Resolve: jpegResolve,
+		Skip: copier.SkipExistingSize, Resolve: resolve,
 		OnCopied: onCopied, Stats: env.Stats, Log: log,
 	}).CopyTree(ctx, dev.Source, jpegDest); err != nil {
-		return fmt.Errorf("fujifilm: copy jpeg: %w", err)
+		return fmt.Errorf("fujifilm: copy: %w", err)
 	}
 
 	// Post-copy transforms (declared in one place; execution is centralized
