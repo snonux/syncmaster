@@ -338,6 +338,31 @@ func TestCopyTreeOnCopied(t *testing.T) {
 	}
 }
 
+func TestCopyTreeOnSkip(t *testing.T) {
+	src := buildTree(t)
+	local := fs.NewMem()
+	st := stats.New()
+	// Pre-create a.jpg and sub/c.jpg with matching sizes/mtimes so they are skipped.
+	mt := time.Unix(1000, 0)
+	local.WriteFileAt("/dst/a.jpg", []byte("aaa"), mt)
+	local.WriteFileAt("/dst/sub/c.jpg", []byte("cccc"), mt)
+	var skipped []string
+	c := &Tree{
+		Src:    copyWritingSource{src, local},
+		Local:  local,
+		Stats:  st,
+		Skip:   SkipUnchangedSizeMtime,
+		OnSkip: func(p string, _ Entry) { skipped = append(skipped, p) },
+	}
+	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
+		t.Fatalf("CopyTree: %v", err)
+	}
+	// a.jpg and sub/c.jpg match -> skipped; b.txt dest absent -> copied.
+	if len(skipped) != 2 {
+		t.Fatalf("OnSkip called %d times, want 2 (a.jpg, sub/c.jpg), got %v", len(skipped), skipped)
+	}
+}
+
 func TestCopyTreeCopyFailureIncrementsFailed(t *testing.T) {
 	src := newMemSource()
 	src.addFile("/src", "a.txt", 3, time.Unix(1, 0), []byte("aaa"))

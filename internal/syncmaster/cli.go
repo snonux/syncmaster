@@ -37,6 +37,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	showVersion := fsFlags.Bool("version", false, "print version and exit")
 	verbose := fsFlags.Bool("verbose", false, "print verbose progress")
 	allowMissingGPS := fsFlags.Bool("allow-missing-gps", false, "import images even without GPS")
+	deleteSource := fsFlags.Bool("delete-source", false, "android: delete files from the phone after they are confirmed copied")
 	device := fsFlags.String("device", "", "select a specific device when multiple are connected")
 	ioTimeout := fsFlags.Duration("io-timeout", 0, "per-operation timeout for external tools (gio/exiftool/supernote-tool); 0 uses IO_TIMEOUT env / default")
 
@@ -68,6 +69,13 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	if *ioTimeout != 0 {
 		cfg.IOTimeout = *ioTimeout
 	}
+	// A bool flag can't distinguish "absent" from "present-and-false", so only
+	// override the env-derived value when --delete-source was explicitly set.
+	fsFlags.Visit(func(f *flag.Flag) {
+		if f.Name == "delete-source" {
+			cfg.AndroidDeleteSource = *deleteSource
+		}
+	})
 	if err := cfg.Validate(); err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 2

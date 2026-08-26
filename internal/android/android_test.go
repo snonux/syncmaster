@@ -3,8 +3,10 @@ package android
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -136,6 +138,91 @@ func TestSyncCopiesAndThenSkips(t *testing.T) {
 	}
 	if got := st2.Get(stats.Skipped); got != 2 {
 		t.Fatalf("run 2 Skipped = %d, want 2", got)
+	}
+}
+
+func TestSyncDeleteSourceMovesBackedUpFiles(t *testing.T) {
+	local := fs.NewMem()
+	type fi struct {
+		Content []byte
+		Mtime   int64
+	}
+	files := map[string]fi{
+		srcDir + "/a.md": {Content: []byte("note a"), Mtime: 1787386697}, // copied
+		srcDir + "/b.md": {Content: []byte("note b"), Mtime: 1787386698}, // already backed up -> skipped
+		srcDir + "/c.md": {Content: []byte("note c"), Mtime: 1787386699}, // copy fails -> kept
+	}
+	// Pre-create b.md in the destination with matching size+mtime so it is skipped.
+	local.WriteFileAt("/home/u/Notes/Quicklog/b.md", files[srcDir+"/b.md"].Content, time.Unix(files[srcDir+"/b.md"].Mtime, 0))
+
+	var deleted []string
+	f := shell.NewFake()
+	f.Register("adb", func(_ context.Context, args []string) ([]byte, error) {
+		a := args
+		if len(a) >= 2 && a[0] == "-s" {
+			a = a[2:]
+		}
+		switch a[0] {
+		case "devices":
+			return []byte("List of devices attached\nPIXEL123         device\n\n"), nil
+		case "shell":
+			if len(a) >= 2 && a[1] == "rm" {
+				// a = [shell, rm, -f, 'path']; record the quoted path (strip quotes).
+				p := strings.Trim(a[len(a)-1], "'")
+				deleted = append(deleted, p)
+				return nil, nil
+			}
+			// stat listing for the source dir.
+			var lines []byte
+			for p, info := range files {
+				lines = append(lines, []byte(fmt.Sprintf("%d|%d|regular file|%s\n", len(info.Content), info.Mtime, p))...)
+			}
+			return lines, nil
+		case "pull":
+			src, dst := a[2], a[3]
+			if strings.HasSuffix(src, "/c.md") {
+				return nil, errors.New("adb pull: failed")
+			}
+			info := files[src]
+			local.WriteFileAt(dst, info.Content, time.Unix(info.Mtime, 0))
+			return []byte("1 file pulled."), nil
+		}
+		return nil, nil
+	})
+	cfg := config.Defaults("/home/u", 1000)
+	cfg.AndroidSource = srcDir
+	cfg.AndroidDest = "/home/u/Notes/Quicklog"
+	cfg.AndroidDeleteSource = true
+	env := &driver.Env{
+		Config: &cfg, Runner: f, Local: local, Clock: clock.Fixed{T: time.Unix(0, 0)},
+		Stats: stats.New(), Out: new(bytes.Buffer), Err: new(bytes.Buffer),
+	}
+	d := (Driver{}).Sync(context.Background(), driver.Device{Driver: "android", Source: srcDir, Extra: map[string]any{"serial": "PIXEL123"}}, env)
+	if d != nil {
+		t.Fatalf("Sync: %v", d)
+	}
+	// a.md (copied) and b.md (skipped) were confirmed backed up -> deleted from phone.
+	want := map[string]bool{srcDir + "/a.md": true, srcDir + "/b.md": true}
+	if len(deleted) != 2 {
+		t.Fatalf("deleted = %v, want 2 entries %v", deleted, want)
+	}
+	for _, p := range deleted {
+		if !want[p] {
+			t.Errorf("unexpected delete of %s", p)
+		}
+	}
+	// c.md failed to copy -> must NOT be deleted.
+	for _, p := range deleted {
+		if p == srcDir+"/c.md" {
+			t.Error("c.md was deleted despite a failed copy")
+		}
+	}
+	// a.md landed locally; c.md did not.
+	if _, err := local.Stat(context.Background(), "/home/u/Notes/Quicklog/a.md"); err != nil {
+		t.Errorf("a.md missing locally: %v", err)
+	}
+	if _, err := local.Stat(context.Background(), "/home/u/Notes/Quicklog/c.md"); err == nil {
+		t.Error("c.md should not exist locally (copy failed)")
 	}
 }
 

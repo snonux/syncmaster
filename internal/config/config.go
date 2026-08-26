@@ -29,15 +29,16 @@ type Config struct {
 	AllowMissingGPS bool
 	Verbose         bool
 
-	GVFSRoot           string
-	FujifilmDest       string
-	FujifilmRAWDest    string
-	GPXDir             string
-	SupernoteDest      string
-	AndroidSource      string
-	AndroidDest        string
-	ConvertParallelism int
-	IOTimeout          time.Duration // per-operation bound for external tools
+	GVFSRoot            string
+	FujifilmDest        string
+	FujifilmRAWDest     string
+	GPXDir              string
+	SupernoteDest       string
+	AndroidSource       string
+	AndroidDest         string
+	AndroidDeleteSource bool
+	ConvertParallelism  int
+	IOTimeout           time.Duration // per-operation bound for external tools
 }
 
 // FromEnv builds a Config from defaults plus environment overrides. getenv
@@ -64,6 +65,9 @@ func FromEnv(getenv func(string) string, home string, uid int) Config {
 	}
 	if v := getenv("ANDROID_DEST"); v != "" {
 		c.AndroidDest = v
+	}
+	if v := getenv("ANDROID_DELETE_SOURCE"); v != "" {
+		c.AndroidDeleteSource = !(v == "0" || strings.EqualFold(v, "false"))
 	}
 	if v := getenv("CONVERT_PARALLELISM"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
@@ -133,6 +137,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.GVFSRoot) == "" {
 		return fmt.Errorf("gvfs root must be set")
+	}
+	if strings.HasPrefix(c.DestOverride, "--") {
+		return fmt.Errorf("destination %q looks like a misplaced flag; flags must precede the mode (e.g. `syncmaster --delete-source android`)", c.DestOverride)
 	}
 	return nil
 }

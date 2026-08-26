@@ -70,6 +70,7 @@ type Tree struct {
 	Skip     SkipPolicy
 	Resolve  DestResolver
 	OnCopied func(destPath string, e Entry) // optional, invoked after a successful copy
+	OnSkip   func(destPath string, e Entry) // optional, invoked when an entry is skipped by the SkipPolicy
 	Stats    *stats.Counters
 	Log      func(format string, args ...any) // optional progress logger
 }
@@ -163,6 +164,9 @@ func (c *Tree) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) er
 	if skip {
 		c.logf("skip existing: %s", e.RelPath)
 		c.Stats.Inc(stats.Skipped, 1)
+		if c.OnSkip != nil {
+			c.OnSkip(destPath, e)
+		}
 		return nil
 	}
 

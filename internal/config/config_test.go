@@ -78,6 +78,24 @@ func TestFromEnvIgnoresBadParallelism(t *testing.T) {
 	}
 }
 
+func TestFromEnvAndroidDeleteSource(t *testing.T) {
+	for _, v := range []string{"1", "true", "yes", "TRUE"} {
+		c := FromEnv(env(map[string]string{"ANDROID_DELETE_SOURCE": v}), "/h", 1)
+		if !c.AndroidDeleteSource {
+			t.Fatalf("ANDROID_DELETE_SOURCE=%q should set AndroidDeleteSource", v)
+		}
+	}
+	for _, v := range []string{"0", "false", "FALSE"} {
+		c := FromEnv(env(map[string]string{"ANDROID_DELETE_SOURCE": v}), "/h", 1)
+		if c.AndroidDeleteSource {
+			t.Fatalf("ANDROID_DELETE_SOURCE=%q should not set AndroidDeleteSource", v)
+		}
+	}
+	if c := FromEnv(env(nil), "/h", 1); c.AndroidDeleteSource {
+		t.Fatal("default AndroidDeleteSource should be false")
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -91,6 +109,7 @@ func TestValidate(t *testing.T) {
 		{"low parallelism", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 0, IOTimeout: DefaultIOTimeout}, true},
 		{"empty gvfs", Config{Mode: "auto", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, true},
 		{"zero io timeout", Config{Mode: "auto", GVFSRoot: "/x", ConvertParallelism: 1}, true},
+		{"dest looks like a flag", Config{Mode: "auto", GVFSRoot: "/x", DestOverride: "--delete-source", ConvertParallelism: 1, IOTimeout: DefaultIOTimeout}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -111,8 +130,14 @@ func TestDestOverrides(t *testing.T) {
 	if c.SupernoteDestEffective() != "/override" {
 		t.Fatalf("sn dest = %q", c.SupernoteDestEffective())
 	}
+	if c.AndroidDestEffective() != "/override" {
+		t.Fatalf("android dest = %q", c.AndroidDestEffective())
+	}
 	c.DestOverride = ""
 	if c.FujifilmJPEGDest() != c.FujifilmDest {
 		t.Fatalf("jpeg dest should fall back")
+	}
+	if c.AndroidDestEffective() != c.AndroidDest {
+		t.Fatalf("android dest should fall back")
 	}
 }

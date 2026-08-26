@@ -128,6 +128,15 @@ func (c Client) Copy(ctx context.Context, src, dst string) error {
 	return nil
 }
 
+// RemoveRemote deletes path on the device via "adb shell rm -f". It is the
+// source-side counterpart to Copy for move-style syncs.
+func (c Client) RemoveRemote(ctx context.Context, path string) error {
+	if _, err := c.run(ctx, "shell", "rm", "-f", shellQuote(path)); err != nil {
+		return fmt.Errorf("adb rm %s: %w", path, err)
+	}
+	return nil
+}
+
 // parseStat parses "stat -c '%s|%Y|%F|%n'" output (one entry per line:
 // size|mtime|type|fullpath) into copier entries.
 func parseStat(raw []byte) []copier.Entry {

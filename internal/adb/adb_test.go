@@ -140,6 +140,25 @@ func TestListPartialStatOutput(t *testing.T) {
 	}
 }
 
+func TestRemoveRemote(t *testing.T) {
+	f := shell.NewFake()
+	f.Register("adb", func(_ context.Context, args []string) ([]byte, error) {
+		if args[0] == "-s" {
+			args = args[2:]
+		}
+		return []byte("ok"), nil
+	})
+	c := Client{Runner: f, Serial: "S"}
+	if err := c.RemoveRemote(context.Background(), "/sdcard/x/a.md"); err != nil {
+		t.Fatalf("RemoveRemote: %v", err)
+	}
+	last := f.Calls[len(f.Calls)-1]
+	want := []string{"-s", "S", "shell", "rm", "-f", "'/sdcard/x/a.md'"}
+	if strings.Join(last.Args, " ") != strings.Join(want, " ") {
+		t.Fatalf("RemoveRemote args = %v, want %v", last.Args, want)
+	}
+}
+
 func TestCopyUsesPullA(t *testing.T) {
 	fb := newFakeADB(t)
 	c := Client{Runner: fb, Serial: "SERIAL123"}
