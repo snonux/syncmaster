@@ -172,9 +172,9 @@ func (a *App) usage() string {
 		names[i] = m.name
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Usage: syncmaster [--allow-missing-gps] [--device NAME] [--io-timeout DURATION] [--verbose] [%s] [destination]\n\n",
+	fmt.Fprintf(&b, "Usage: syncmaster [--allow-missing-gps] [--delete-source] [--device NAME] [--io-timeout DURATION] [--verbose] [%s] [destination]\n\n",
 		strings.Join(names, "|"))
-	b.WriteString("Import files from supported USB devices mounted through GVFS.\n\n")
+	b.WriteString("Import files from supported USB devices mounted through GVFS, or from an Android phone over adb.\n\n")
 	b.WriteString("Modes:\n")
 	for _, m := range modes {
 		fmt.Fprintf(&b, "  %-10s %s\n", m.name, m.desc)
@@ -182,6 +182,7 @@ func (a *App) usage() string {
 	b.WriteString("\nOptions:\n")
 	for _, o := range [][2]string{
 		{"--allow-missing-gps", "Import camera images even when no GPS coordinates match."},
+		{"--delete-source", "android: delete files from the phone after they are confirmed copied (move semantics)."},
 		{"--device NAME", "Select a specific device when multiple are connected."},
 		{"--io-timeout DURATION", "Per-operation timeout for external tools (gio/exiftool/supernote-tool); 0 uses IO_TIMEOUT env / default."},
 		{"--verbose", "Print verbose progress."},
@@ -189,6 +190,7 @@ func (a *App) usage() string {
 		fmt.Fprintf(&b, "  %-23s %s\n", o[0], o[1])
 	}
 	b.WriteString("\nEnvironment overrides:\n")
+	b.WriteString("  ANDROID_SOURCE, ANDROID_DEST, ANDROID_DELETE_SOURCE,\n")
 	b.WriteString("  FUJIFILM_DEST, FUJIFILM_RAW_DEST, GPX_DIR, SUPERNOTE_DEST,\n")
 	b.WriteString("  CONVERT_PARALLELISM, GVFS_ROOT, IO_TIMEOUT\n")
 	return b.String()
