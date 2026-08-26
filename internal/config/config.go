@@ -34,6 +34,8 @@ type Config struct {
 	FujifilmRAWDest    string
 	GPXDir             string
 	SupernoteDest      string
+	AndroidSource      string
+	AndroidDest        string
 	ConvertParallelism int
 	IOTimeout          time.Duration // per-operation bound for external tools
 }
@@ -56,6 +58,12 @@ func FromEnv(getenv func(string) string, home string, uid int) Config {
 	}
 	if v := getenv("SUPERNOTE_DEST"); v != "" {
 		c.SupernoteDest = v
+	}
+	if v := getenv("ANDROID_SOURCE"); v != "" {
+		c.AndroidSource = v
+	}
+	if v := getenv("ANDROID_DEST"); v != "" {
+		c.AndroidDest = v
 	}
 	if v := getenv("CONVERT_PARALLELISM"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
@@ -97,6 +105,8 @@ func Defaults(home string, uid int) Config {
 		FujifilmRAWDest:    filepath.Join(home, "Pictures", "Fujifilm.RAW"),
 		GPXDir:             filepath.Join(home, "Documents", "GPX"),
 		SupernoteDest:      filepath.Join(home, "Documents", "Inbox", "Supernote"),
+		AndroidSource:      "/sdcard/Notes/Vault/Quicklog",
+		AndroidDest:        filepath.Join(home, "Notes", "Quicklog"),
 		ConvertParallelism: DefaultConvertParallelism,
 		IOTimeout:          DefaultIOTimeout,
 	}
@@ -143,4 +153,13 @@ func (c Config) SupernoteDestEffective() string {
 		return c.DestOverride
 	}
 	return c.SupernoteDest
+}
+
+// AndroidDestEffective returns the effective Android destination, honoring
+// an override.
+func (c Config) AndroidDestEffective() string {
+	if c.DestOverride != "" {
+		return c.DestOverride
+	}
+	return c.AndroidDest
 }

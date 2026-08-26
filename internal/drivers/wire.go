@@ -5,6 +5,7 @@
 package drivers
 
 import (
+	"github.com/snonux/syncmaster/internal/android"
 	"github.com/snonux/syncmaster/internal/driver"
 	"github.com/snonux/syncmaster/internal/fujifilm"
 	"github.com/snonux/syncmaster/internal/supernote"
@@ -15,5 +16,6 @@ import (
 func RegisterAll(r *driver.Registry) {
 	_ = r.Register(&fujifilm.Driver{})
 	_ = r.Register(supernote.Driver{})
+	_ = r.Register(&android.Driver{})
 	// future: _ = r.Register(gopro.Driver{})
 }
