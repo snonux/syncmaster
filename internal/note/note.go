@@ -6,6 +6,7 @@ package note
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -46,6 +47,30 @@ func (c *Convert) Apply(ctx context.Context, tctx *driver.TransformCtx) error {
 	}
 	local := tctx.Local
 	root := tctx.DestRoot
+
+	// Dry run: show what would convert without requiring the tool, creating the
+	// dest, or scanning a dest that the copier never populated. The dest may
+	// not exist yet (the copier did not copy in dry run), so tolerate a missing
+	// root and report the stale .note files that are already present, if any.
+	if tctx.DryRun {
+		if _, err := local.Stat(ctx, root); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				tctx.Logger.Info("DRY: would convert .note files under %s (dest not present yet).", root)
+				return nil
+			}
+			return fmt.Errorf("note: stat %s: %w", root, err)
+		}
+		jobs, err := c.enqueue(ctx, local, root, tctx)
+		if err != nil {
+			return fmt.Errorf("note: scan notes: %w", err)
+		}
+		for _, j := range jobs {
+			tctx.Logger.Info("DRY: supernote-tool convert -a -t pdf %s %s", j.note, j.pdf)
+		}
+		tctx.Logger.Info("DRY: would convert %d .note file(s) via supernote-tool.", len(jobs))
+		return nil
+	}
+
 	conv := c.Conv
 	if conv == nil {
 		if _, err := c.Runner.LookPath("supernote-tool"); err != nil {

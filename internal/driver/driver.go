@@ -58,6 +58,7 @@ type Env struct {
 	Err     io.Writer       // error log
 	Drivers *Registry       // driver registry (dispatch); required for Run
 	Media   *media.Registry // file-class registry; drivers fall back to Default() if nil
+	DryRun  bool            // true = plan only, mutate nothing (default); false = execute
 }
 
 // Plugin discovers devices and syncs from one. Implement this + Register to
@@ -129,6 +130,7 @@ type TransformCtx struct {
 	Logger   Logger          // progress + error log (concurrency-safe)
 	Stats    *stats.Counters // shared, concurrency-safe counters
 	Local    fs.Store        // local filesystem (dest side, meta, rollback)
+	DryRun   bool            // true = plan only, mutate nothing (mirrors Env.DryRun)
 	DestRoot string          // where copied files landed
 	Imported []string        // files of interest (e.g. images to geotag)
 	Device   Device

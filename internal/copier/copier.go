@@ -71,6 +71,7 @@ type Tree struct {
 	Resolve  DestResolver
 	OnCopied func(destPath string, e Entry) // optional, invoked after a successful copy
 	OnSkip   func(destPath string, e Entry) // optional, invoked when an entry is skipped by the SkipPolicy
+	DryRun   bool                           // true = log the plan without copying (no Source.Copy, no fs mutation)
 	Stats    *stats.Counters
 	Log      func(format string, args ...any) // optional progress logger
 }
@@ -153,6 +154,30 @@ func (c *Tree) copyOne(ctx context.Context, e Entry, srcPath, dstRoot string) er
 	}
 
 	destPath := joinPath(root, relPath)
+
+	// Dry run: show the plan without mutating. applySkip is a read, so it still
+	// runs to distinguish would-copy from already-backed-up; nothing is copied,
+	// removed, or renamed, and stats.Copied is not incremented.
+	if c.DryRun {
+		skip, err := c.applySkip(ctx, e, destPath)
+		if err != nil {
+			return err
+		}
+		if skip {
+			c.logf("skip existing: %s", e.RelPath)
+			c.Stats.Inc(stats.Skipped, 1)
+			if c.OnSkip != nil {
+				c.OnSkip(destPath, e)
+			}
+			return nil
+		}
+		c.logf("would copy: %s -> %s", e.RelPath, destPath)
+		if c.OnCopied != nil {
+			c.OnCopied(destPath, e)
+		}
+		return nil
+	}
+
 	if err := c.Local.MkdirAll(ctx, filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir parent %s: %w", filepath.Dir(destPath), err)
 	}

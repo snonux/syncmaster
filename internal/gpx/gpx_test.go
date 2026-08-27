@@ -211,6 +211,27 @@ func TestApplyGeotagRunErrorRollback(t *testing.T) {
 	}
 }
 
+func TestApplyDryRun(t *testing.T) {
+	st := stats.New()
+	out := new(bytes.Buffer)
+	env := &driver.Env{Local: fs.NewMem(), Stats: st, Out: out, Err: out, DryRun: true}
+	g := &Geotag{GPXDir: "/gpx"}
+	tctx := &driver.TransformCtx{
+		Env:      env,
+		DryRun:   true,
+		Imported: []string{"/dst/a.jpg", "/dst/b.jpg"},
+	}
+	if err := g.Apply(context.Background(), tctx); err != nil {
+		t.Fatalf("Apply dry run: %v", err)
+	}
+	if !strings.Contains(out.String(), "DRY: would geotag 2") {
+		t.Fatalf("dry run should log would-geotag 2, got: %s", out.String())
+	}
+	if st.Get(stats.Failed) != 0 {
+		t.Fatalf("Failed = %d, want 0 (dry run does not run exiftool)", st.Get(stats.Failed))
+	}
+}
+
 func TestApplyNilContext(t *testing.T) {
 	g := &Geotag{}
 	if err := g.Apply(context.Background(), nil); err == nil {

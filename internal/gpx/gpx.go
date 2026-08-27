@@ -57,6 +57,11 @@ func (g *Geotag) Apply(ctx context.Context, tctx *driver.TransformCtx) error {
 		return nil
 	}
 
+	if tctx.DryRun {
+		tctx.Logger.Info("DRY: would geotag %d imported image(s) via exiftool.", len(tctx.Imported))
+		return nil
+	}
+
 	tracks, err := g.findTracks(ctx, tctx.Local)
 	if err != nil {
 		return fmt.Errorf("find gpx tracks: %w", err)

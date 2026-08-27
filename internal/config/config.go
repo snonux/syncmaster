@@ -37,6 +37,7 @@ type Config struct {
 	AndroidSource       string
 	AndroidDest         string
 	AndroidDeleteSource bool
+	Run                 bool // true = execute (default false = dry run)
 	ConvertParallelism  int
 	IOTimeout           time.Duration // per-operation bound for external tools
 }
@@ -68,6 +69,9 @@ func FromEnv(getenv func(string) string, home string, uid int) Config {
 	}
 	if v := getenv("ANDROID_DELETE_SOURCE"); v != "" {
 		c.AndroidDeleteSource = !(v == "0" || strings.EqualFold(v, "false"))
+	}
+	if v := getenv("SYNCMASTER_RUN"); v != "" {
+		c.Run = !(v == "0" || strings.EqualFold(v, "false"))
 	}
 	if v := getenv("CONVERT_PARALLELISM"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 1 {

@@ -96,6 +96,18 @@ func TestFromEnvAndroidDeleteSource(t *testing.T) {
 	}
 }
 
+func TestFromEnvRun(t *testing.T) {
+	if c := FromEnv(env(map[string]string{"SYNCMASTER_RUN": "1"}), "/h", 1); !c.Run {
+		t.Fatal("SYNCMASTER_RUN=1 should set Run")
+	}
+	if c := FromEnv(env(map[string]string{"SYNCMASTER_RUN": "0"}), "/h", 1); c.Run {
+		t.Fatal("SYNCMASTER_RUN=0 should not set Run")
+	}
+	if c := FromEnv(env(nil), "/h", 1); c.Run {
+		t.Fatal("default Run should be false (dry run)")
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string

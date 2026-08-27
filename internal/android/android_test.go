@@ -226,6 +226,69 @@ func TestSyncDeleteSourceMovesBackedUpFiles(t *testing.T) {
 	}
 }
 
+func TestSyncDryRunDeletesNothing(t *testing.T) {
+	local := fs.NewMem()
+	type fi struct {
+		Content []byte
+		Mtime   int64
+	}
+	files := map[string]fi{
+		srcDir + "/a.md": {Content: []byte("note a"), Mtime: 1787386697},
+		srcDir + "/b.md": {Content: []byte("note b"), Mtime: 1787386698},
+	}
+	var rm []string
+	f := shell.NewFake()
+	f.Register("adb", func(_ context.Context, args []string) ([]byte, error) {
+		a := args
+		if len(a) >= 2 && a[0] == "-s" {
+			a = a[2:]
+		}
+		switch a[0] {
+		case "devices":
+			return []byte("List of devices attached\nPIXEL123         device\n\n"), nil
+		case "shell":
+			if len(a) >= 2 && a[1] == "rm" {
+				rm = append(rm, strings.Trim(a[len(a)-1], "'"))
+				return nil, nil
+			}
+			var lines []byte
+			for p, info := range files {
+				lines = append(lines, []byte(fmt.Sprintf("%d|%d|regular file|%s\n", len(info.Content), info.Mtime, p))...)
+			}
+			return lines, nil
+		case "pull":
+			// In dry run the copier never calls Copy, so pull should not be hit.
+			return nil, errors.New("pull should not be called in dry run")
+		}
+		return nil, nil
+	})
+	cfg := config.Defaults("/home/u", 1000)
+	cfg.AndroidSource = srcDir
+	cfg.AndroidDest = "/home/u/Notes/Quicklog"
+	cfg.AndroidDeleteSource = true
+	out := new(bytes.Buffer)
+	env := &driver.Env{
+		Config: &cfg, Runner: f, Local: local, Clock: clock.Fixed{T: time.Unix(0, 0)},
+		Stats: stats.New(), Out: out, Err: new(bytes.Buffer), DryRun: true,
+	}
+	if err := (Driver{}).Sync(context.Background(), driver.Device{Driver: "android", Source: srcDir, Extra: map[string]any{"serial": "PIXEL123"}}, env); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	// Dry run: no adb rm, no local files, but the plan is logged.
+	if len(rm) != 0 {
+		t.Fatalf("dry run issued rm commands: %v", rm)
+	}
+	if _, err := local.Stat(context.Background(), "/home/u/Notes/Quicklog/a.md"); err == nil {
+		t.Fatal("dry run should not have copied a.md locally")
+	}
+	if !strings.Contains(out.String(), "DRY: would delete from phone") {
+		t.Fatalf("dry run should log would-delete, got: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "would copy") {
+		t.Fatalf("dry run should log would-copy, got: %s", out.String())
+	}
+}
+
 func TestSyncReCopiesChangedFile(t *testing.T) {
 	local := fs.NewMem()
 	files := map[string]struct {

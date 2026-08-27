@@ -92,12 +92,13 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 	log("Importing the Supernote Note folder.")
 
 	cc := &copier.Tree{
-		Src:   env.Source,
-		Local: env.Local,
-		Clock: env.Clock,
-		Skip:  copier.SkipUnchangedSizeMtime,
-		Stats: env.Stats,
-		Log:   log,
+		Src:    env.Source,
+		Local:  env.Local,
+		Clock:  env.Clock,
+		Skip:   copier.SkipUnchangedSizeMtime,
+		DryRun: env.DryRun,
+		Stats:  env.Stats,
+		Log:    log,
 	}
 	if err := cc.CopyTree(ctx, noteRoot, dest); err != nil {
 		return fmt.Errorf("supernote: copy Note: %w", err)
@@ -119,6 +120,7 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 		if err := (&copier.Tree{
 			Src: env.Source, Local: env.Local, Clock: env.Clock,
 			Skip: copier.SkipUnchangedSizeMtime, Stats: env.Stats, Log: log,
+			DryRun: env.DryRun,
 		}).CopyTree(ctx, documentRoot, koDest); err != nil {
 			return fmt.Errorf("supernote: copy Document: %w", err)
 		}
@@ -129,7 +131,7 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 
 	log("It is safe to unplug the Supernote now if you eject/unmount it safely.")
 
-	tctx := &driver.TransformCtx{Env: env, DestRoot: dest, Device: dev}
+	tctx := &driver.TransformCtx{Env: env, DestRoot: dest, Device: dev, DryRun: env.DryRun}
 	if err := driver.RunTransforms(ctx, tctx, d.transforms(env)...); err != nil {
 		return fmt.Errorf("supernote: %w", err)
 	}

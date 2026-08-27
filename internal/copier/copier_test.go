@@ -3,9 +3,11 @@ package copier
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -318,6 +320,50 @@ func TestCopyTreeSkipUnchangedReplacesWhenChanged(t *testing.T) {
 	got, _ := local.ReadFile(context.Background(), "/dst/a.txt")
 	if string(got) != "aaaaa" {
 		t.Fatalf("content = %q, want aaaaa", got)
+	}
+}
+
+func TestCopyTreeDryRun(t *testing.T) {
+	src := buildTree(t)
+	local := fs.NewMem()
+	st := stats.New()
+	var logs []string
+	copied := 0
+	c := &Tree{
+		Src:      copyWritingSource{src, local},
+		Local:    local,
+		Stats:    st,
+		DryRun:   true,
+		Log:      func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) },
+		OnCopied: func(string, Entry) { copied++ },
+	}
+	if err := c.CopyTree(context.Background(), "/src", "/dst"); err != nil {
+		t.Fatalf("CopyTree: %v", err)
+	}
+	// Nothing was actually copied.
+	if st.Get(stats.Copied) != 0 {
+		t.Fatalf("Copied = %d, want 0 (dry run)", st.Get(stats.Copied))
+	}
+	if st.Get(stats.Found) != 3 {
+		t.Fatalf("Found = %d, want 3", st.Get(stats.Found))
+	}
+	for _, p := range []string{"/dst/a.jpg", "/dst/b.txt", "/dst/sub/c.jpg"} {
+		if _, err := local.Stat(context.Background(), p); err == nil {
+			t.Fatalf("%s should not exist (dry run did not copy)", p)
+		}
+	}
+	// OnCopied fired for the plan, and the log shows "would copy".
+	if copied != 3 {
+		t.Fatalf("OnCopied fired %d times, want 3 (plan)", copied)
+	}
+	var would int
+	for _, l := range logs {
+		if strings.HasPrefix(l, "would copy") {
+			would++
+		}
+	}
+	if would != 3 {
+		t.Fatalf("'would copy' lines = %d, want 3, logs=%v", would, logs)
 	}
 }
 

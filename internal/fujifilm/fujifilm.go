@@ -110,6 +110,7 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	if err := (&copier.Tree{
 		Src: env.Source, Local: env.Local, Clock: env.Clock,
 		Skip: copier.SkipExistingImportMeta, Resolve: resolve,
+		DryRun:   env.DryRun,
 		OnCopied: onCopied, Stats: env.Stats, Log: log,
 	}).CopyTree(ctx, dev.Source, jpegDest); err != nil {
 		return fmt.Errorf("fujifilm: copy: %w", err)
@@ -122,6 +123,7 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 		DestRoot: jpegDest,
 		Imported: imported,
 		Device:   dev,
+		DryRun:   env.DryRun,
 	}
 	if err := driver.RunTransforms(ctx, tctx, d.transforms(env)...); err != nil {
 		return fmt.Errorf("fujifilm: %w", err)

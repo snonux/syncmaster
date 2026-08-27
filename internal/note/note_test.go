@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -363,6 +364,31 @@ func TestSignatureAndChangeNoteExt(t *testing.T) {
 	}
 	if got := changeNoteExt("/root", "sub/a.NOTE"); !strings.HasSuffix(got, "/sub/a.pdf") {
 		t.Fatalf("changeNoteExt = %q", got)
+	}
+}
+
+func TestApplyDryRunMissingDest(t *testing.T) {
+	// Regression for the dry-run blocker: with a fresh (non-existent) dest, the
+	// note transform must not error (cleanStaleTemp/enqueue would walk a missing
+	// root). It should report that the dest is not present yet.
+	root := filepath.Join(t.TempDir(), "does", "not", "exist")
+	out := new(bytes.Buffer)
+	env := &driver.Env{Out: out, Err: out, DryRun: true}
+	tctx := &driver.TransformCtx{
+		Env:      env,
+		Local:    fs.DryRunStore{Store: fs.OS{}, Log: func(string, ...any) {}},
+		DryRun:   true,
+		DestRoot: root,
+	}
+	c := &Convert{Conv: &fakeConverter{}}
+	if err := c.Apply(context.Background(), tctx); err != nil {
+		t.Fatalf("Apply dry run: %v", err)
+	}
+	if !strings.Contains(out.String(), "dest not present yet") {
+		t.Fatalf("dry run should report dest not present, got: %s", out.String())
+	}
+	if _, err := os.Stat(root); err == nil {
+		t.Fatal("dry run must not create the dest directory")
 	}
 }
 

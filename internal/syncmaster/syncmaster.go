@@ -29,6 +29,9 @@ type App struct {
 
 // Run dispatches by configured mode.
 func (a *App) Run(ctx context.Context) error {
+	if a.Env.DryRun && a.Env.Config.Mode != "help" && a.Env.Config.Mode != "selftest" {
+		_, _ = fmt.Fprintln(a.Env.Out, "DRY RUN — showing the plan only; nothing will be changed. Use --run to execute.")
+	}
 	switch a.Env.Config.Mode {
 	case "help":
 		_, _ = fmt.Fprint(a.Env.Out, a.usage())
@@ -120,12 +123,18 @@ func (a *App) runAuto(ctx context.Context) error {
 // failures were recorded. It should be called once after Run.
 func (a *App) Finish() error {
 	_, _ = fmt.Fprintf(a.Env.Out, "Summary: %s\n", a.Env.Stats)
-	fssync.Sync()
+	if !a.Env.DryRun {
+		fssync.Sync()
+	}
 	if a.Env.Stats.Get(stats.Failed) > 0 {
 		_, _ = fmt.Fprintln(a.Env.Err, "Import finished with failures.")
 		return ErrFailed
 	}
-	_, _ = fmt.Fprintln(a.Env.Out, "Import complete. It is safe to unplug the USB device.")
+	if a.Env.DryRun {
+		_, _ = fmt.Fprintln(a.Env.Out, "DRY RUN complete — nothing was changed.")
+	} else {
+		_, _ = fmt.Fprintln(a.Env.Out, "Import complete. It is safe to unplug the USB device.")
+	}
 	return nil
 }
 
@@ -172,8 +181,9 @@ func (a *App) usage() string {
 		names[i] = m.name
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Usage: syncmaster [--allow-missing-gps] [--delete-source] [--device NAME] [--io-timeout DURATION] [--verbose] [%s] [destination]\n\n",
+	fmt.Fprintf(&b, "Usage: syncmaster [--allow-missing-gps] [--delete-source] [--device NAME] [--io-timeout DURATION] [--run] [--verbose] [%s] [destination]\n\n",
 		strings.Join(names, "|"))
+	b.WriteString("By default syncmaster runs in DRY mode (shows the plan, changes nothing); pass --run to actually sync.\n\n")
 	b.WriteString("Import files from supported USB devices mounted through GVFS, or from an Android phone over adb.\n\n")
 	b.WriteString("Modes:\n")
 	for _, m := range modes {
@@ -185,6 +195,7 @@ func (a *App) usage() string {
 		{"--delete-source", "android: delete files from the phone after they are confirmed copied (move semantics)."},
 		{"--device NAME", "Select a specific device when multiple are connected."},
 		{"--io-timeout DURATION", "Per-operation timeout for external tools (gio/exiftool/supernote-tool); 0 uses IO_TIMEOUT env / default."},
+		{"--run", "Actually perform the sync (default: dry run; show what would be done)."},
 		{"--verbose", "Print verbose progress."},
 	} {
 		fmt.Fprintf(&b, "  %-23s %s\n", o[0], o[1])
@@ -192,6 +203,6 @@ func (a *App) usage() string {
 	b.WriteString("\nEnvironment overrides:\n")
 	b.WriteString("  ANDROID_SOURCE, ANDROID_DEST, ANDROID_DELETE_SOURCE,\n")
 	b.WriteString("  FUJIFILM_DEST, FUJIFILM_RAW_DEST, GPX_DIR, SUPERNOTE_DEST,\n")
-	b.WriteString("  CONVERT_PARALLELISM, GVFS_ROOT, IO_TIMEOUT\n")
+	b.WriteString("  CONVERT_PARALLELISM, GVFS_ROOT, IO_TIMEOUT, SYNCMASTER_RUN\n")
 	return b.String()
 }

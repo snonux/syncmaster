@@ -84,22 +84,32 @@ func (Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) erro
 		Src: client, Local: env.Local, Clock: env.Clock,
 		Skip:     copier.SkipUnchangedSizeMtime,
 		OnCopied: remember, OnSkip: remember,
-		Stats: env.Stats, Log: log,
+		DryRun: env.DryRun,
+		Stats:  env.Stats, Log: log,
 	}).CopyTree(ctx, dev.Source, dest)
 
 	// Only delete from the phone once the copy phase is clean, and only files
 	// confirmed backed up (copied/skipped). A file whose copy failed is NOT in
-	// backedUp, so it stays on the phone — no data loss on a partial sync.
+	// backedUp, so it stays on the phone — no data loss on a partial sync. In
+	// dry run, log what would be deleted and touch nothing.
 	if deleteSource && copyErr == nil {
 		deleted := 0
 		for _, src := range backedUp {
+			if env.DryRun {
+				log("DRY: would delete from phone: %s", src)
+				continue
+			}
 			if err := client.RemoveRemote(ctx, src); err != nil {
 				_, _ = fmt.Fprintf(env.Err, "android: delete %s: %v\n", src, err)
 				continue
 			}
 			deleted++
 		}
-		log("Deleted %d file(s) from the phone.", deleted)
+		if env.DryRun {
+			log("DRY: would delete %d file(s) from the phone.", len(backedUp))
+		} else {
+			log("Deleted %d file(s) from the phone.", deleted)
+		}
 	}
 
 	if copyErr != nil {

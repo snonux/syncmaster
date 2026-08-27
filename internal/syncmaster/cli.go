@@ -38,6 +38,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	verbose := fsFlags.Bool("verbose", false, "print verbose progress")
 	allowMissingGPS := fsFlags.Bool("allow-missing-gps", false, "import images even without GPS")
 	deleteSource := fsFlags.Bool("delete-source", false, "android: delete files from the phone after they are confirmed copied")
+	run := fsFlags.Bool("run", false, "actually perform the sync (default: dry run; show what would be done)")
 	device := fsFlags.String("device", "", "select a specific device when multiple are connected")
 	ioTimeout := fsFlags.Duration("io-timeout", 0, "per-operation timeout for external tools (gio/exiftool/supernote-tool); 0 uses IO_TIMEOUT env / default")
 
@@ -69,11 +70,14 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	if *ioTimeout != 0 {
 		cfg.IOTimeout = *ioTimeout
 	}
-	// A bool flag can't distinguish "absent" from "present-and-false", so only
-	// override the env-derived value when --delete-source was explicitly set.
+	// Bool flags can't distinguish "absent" from "present-and-false", so only
+	// override the env-derived value when the flag was explicitly set.
 	fsFlags.Visit(func(f *flag.Flag) {
-		if f.Name == "delete-source" {
+		switch f.Name {
+		case "delete-source":
 			cfg.AndroidDeleteSource = *deleteSource
+		case "run":
+			cfg.Run = *run
 		}
 	})
 	if err := cfg.Validate(); err != nil {
@@ -87,11 +91,17 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	mreg := media.NewRegistry()
 	media.RegisterDefaults(mreg)
 	gio := &gvfs.Gio{Runner: shell.Exec{Timeout: cfg.IOTimeout}, Root: cfg.GVFSRoot}
+	local := fs.Store(fs.OS{})
+	if !cfg.Run {
+		local = fs.DryRunStore{Store: fs.OS{}, Log: func(format string, args ...any) {
+			_, _ = fmt.Fprintf(stdout, format+"\n", args...)
+		}}
+	}
 	env := &driver.Env{
 		Config:  &cfg,
 		Source:  gio,
 		Mounts:  gio,
-		Local:   fs.OS{},
+		Local:   local,
 		Clock:   clock.Real{},
 		Runner:  shell.Exec{Timeout: cfg.IOTimeout},
 		Stats:   st,
@@ -99,6 +109,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		Err:     stderr,
 		Drivers: reg,
 		Media:   mreg,
+		DryRun:  !cfg.Run,
 	}
 	app := &App{Env: env}
 
