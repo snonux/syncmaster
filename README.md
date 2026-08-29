@@ -7,7 +7,7 @@ A Go port of the original `~/scripts/usbimport` bash script, built on a
 pluggable driver architecture so new sync sources can be added by writing one
 package and registering it in a single place.
 
-**Status**: v0.1.0 — functional, early release.
+**Status**: v0.4.0 — dry run by default; pass `--run` (or `SYNCMASTER_RUN=1`) to execute.
 
 ## Prerequisites
 
@@ -27,18 +27,26 @@ package and registering it in a single place.
 
 ## Usage
 
+By default syncmaster is a **dry run**: it prints the plan and changes nothing.
+Pass `--run` (or set `SYNCMASTER_RUN=1`) to actually perform the sync. Always use
+`--run` / `SYNCMASTER_RUN=1` in automation; without it, scripted invocations are
+plan-only.
+
     syncmaster [auto|<driver>|selftest|help] [destination]   # driver modes come from the registry
     syncmaster -version
+    syncmaster --run                      # actually perform the sync
     syncmaster -verbose                   # print verbose progress
-    syncmaster --allow-missing-gps        # import images even without GPS
+    syncmaster --allow-missing-gps        # allow import when no GPS match (still dry-run unless --run)
     syncmaster --device fujifilm          # pick a device when multiple connected
 
 ### Examples
 
-    syncmaster                        # auto-detect and import connected devices
-    syncmaster fujifilm ~/Photos      # import Fujifilm photos to ~/Photos
-    syncmaster supernote              # import Supernote notes to default dest
-    syncmaster --allow-missing-gps    # skip geotag if no GPX data available
+    syncmaster                        # dry-run plan for auto-detected devices
+    syncmaster --run                  # auto-detect and import connected devices
+    syncmaster --run fujifilm ~/Photos # import Fujifilm photos to ~/Photos
+    syncmaster --run supernote        # import Supernote notes to default dest
+    syncmaster --run --allow-missing-gps  # execute even when geotag finds no GPS match
+    SYNCMASTER_RUN=1 syncmaster auto  # same as --run, for env-based automation
 
 ### Exit codes
 
@@ -52,6 +60,7 @@ package and registering it in a single place.
 
 | Variable              | Description                    | Default                          |
 |-----------------------|--------------------------------|----------------------------------|
+| `SYNCMASTER_RUN`      | Non-empty except `0`/`false` = execute; unset/`0`/`false` = dry run | unset (dry run) |
 | `FUJIFILM_DEST`       | JPEG/video destination         | `~/Pictures/Fujifilm.Inbox`      |
 | `FUJIFILM_RAW_DEST`   | RAW file destination           | `~/Pictures/Fujifilm.RAW`        |
 | `GPX_DIR`             | GPX tracks for geotagging      | `~/Documents/GPX`                |
