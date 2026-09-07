@@ -1,16 +1,17 @@
-// Package supernote implements the Supernote Nomad sync driver: it copies the
-// Note and Document (KOReader) folders from a GVFS MTP mount, then converts
-// .note files to PDF via the note Transform.
+// Package supernote implements the Supernote Nomad sync driver: it backs up
+// Note and Document folders via rsync, then converts .note files to PDF via
+// the note Transform.
 package supernote
 
 import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
-	"github.com/snonux/syncmaster/internal/copier"
 	"github.com/snonux/syncmaster/internal/driver"
 	"github.com/snonux/syncmaster/internal/note"
+	"github.com/snonux/syncmaster/internal/shell"
 )
 
 // Driver syncs from a Supernote Nomad mounted via GVFS (MTP).
@@ -23,7 +24,7 @@ func (Driver) Name() string { return "supernote" }
 
 // Description returns the human-readable summary shown in usage/help.
 func (Driver) Description() string {
-	return "Copy the Supernote Note folder (convert .note to PDF) and the Document folder (KOReader books + .sdr sidecar data)."
+	return "Back up Supernote notes and documents."
 }
 
 // Detect finds reachable Supernote MTP mounts, preferring "Internal shared
@@ -84,24 +85,11 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 		return fmt.Errorf("supernote: Note folder not found at %s", noteRoot)
 	}
 
-	if err := env.Local.MkdirAll(ctx, dest, 0o755); err != nil {
-		return fmt.Errorf("supernote: mkdir %s: %w", dest, err)
-	}
-
 	_, _ = fmt.Fprintf(env.Out, "Device: Supernote Nomad\nSource: %s\nDestination: %s\n", noteRoot, dest)
 	log("Importing the Supernote Note folder.")
 
-	cc := &copier.Tree{
-		Src:    env.Source,
-		Local:  env.Local,
-		Clock:  env.Clock,
-		Skip:   copier.SkipUnchangedSizeMtime,
-		DryRun: env.DryRun,
-		Stats:  env.Stats,
-		Log:    log,
-	}
-	if err := cc.CopyTree(ctx, noteRoot, dest); err != nil {
-		return fmt.Errorf("supernote: copy Note: %w", err)
+	if err := d.rsyncTree(ctx, noteRoot, dest, env); err != nil {
+		return fmt.Errorf("supernote: back up Note: %w", err)
 	}
 	log("Supernote note files are copied locally.")
 
@@ -112,21 +100,14 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 	}
 	if docOK {
 		koDest := filepath.Join(dest, "KOReader")
-		if err := env.Local.MkdirAll(ctx, koDest, 0o755); err != nil {
-			return fmt.Errorf("supernote: mkdir %s: %w", koDest, err)
-		}
 		_, _ = fmt.Fprintf(env.Out, "Source: %s\nKOReader destination: %s\n", documentRoot, koDest)
-		log("Importing the Supernote Document folder (KOReader books + .sdr sidecars).")
-		if err := (&copier.Tree{
-			Src: env.Source, Local: env.Local, Clock: env.Clock,
-			Skip: copier.SkipUnchangedSizeMtime, Stats: env.Stats, Log: log,
-			DryRun: env.DryRun,
-		}).CopyTree(ctx, documentRoot, koDest); err != nil {
-			return fmt.Errorf("supernote: copy Document: %w", err)
+		log("Importing the Supernote Document folder.")
+		if err := d.rsyncTree(ctx, documentRoot, koDest, env); err != nil {
+			return fmt.Errorf("supernote: back up Document: %w", err)
 		}
 		log("KOReader books and reading-progress sidecar data are copied locally.")
 	} else {
-		log("No Document folder found on the Supernote; skipping KOReader backup.")
+		log("No Document folder found on the Supernote; skipping document backup.")
 	}
 
 	log("It is safe to unplug the Supernote now if you eject/unmount it safely.")
@@ -137,6 +118,47 @@ func (d Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) er
 	}
 	_, _ = fmt.Fprintf(env.Out, "Imported files to: %s\n", dest)
 	return nil
+}
+
+// rsyncTree recursively backs up the contents of source into destination.
+func (Driver) rsyncTree(ctx context.Context, source, destination string, env *driver.Env) error {
+	args := []string{"--recursive", "--mkpath", "--size-only", "--itemize-changes"}
+	if !env.DryRun {
+		args = append(args, "--info=progress2")
+	}
+	if env.DryRun {
+		args = append(args, "--dry-run")
+	}
+	args = append(args, "--", trailingSlash(source), trailingSlash(destination))
+
+	runner := env.TransferRunner
+	if runner == nil {
+		runner = env.Runner
+	}
+	if streaming, ok := runner.(shell.StreamingRunner); ok {
+		if err := streaming.RunStreaming(ctx, env.Out, env.Err, "rsync", args...); err != nil {
+			return fmt.Errorf("rsync: %w", err)
+		}
+		return nil
+	}
+	out, err := runner.Run(ctx, "rsync", args...)
+	if len(out) != 0 {
+		_, _ = env.Out.Write(out)
+		if out[len(out)-1] != '\n' {
+			_, _ = fmt.Fprintln(env.Out)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("rsync: %w", err)
+	}
+	return nil
+}
+
+func trailingSlash(path string) string {
+	if strings.HasSuffix(path, string(filepath.Separator)) {
+		return path
+	}
+	return path + string(filepath.Separator)
 }
 
 // transforms returns the driver's ordered post-copy transforms, constructed

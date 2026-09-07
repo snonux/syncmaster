@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -109,6 +110,17 @@ func TestExecRunError(t *testing.T) {
 	if !errors.As(err, new(*exec.ExitError)) {
 		// not fatal: some Go versions wrap differently; just ensure non-nil
 		t.Logf("err = %v (not *exec.ExitError)", err)
+	}
+}
+
+func TestExecRunStreaming(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := (Exec{}).RunStreaming(context.Background(), &stdout, &stderr, "sh", "-c", "printf out; printf err >&2")
+	if err != nil {
+		t.Fatalf("RunStreaming: %v", err)
+	}
+	if stdout.String() != "out" || stderr.String() != "err" {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 

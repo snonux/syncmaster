@@ -116,9 +116,6 @@ func (c *Convert) enqueue(ctx context.Context, local fs.Store, root string, tctx
 		rel, _ := filepath.Rel(root, path)
 		pdfPath := changeNoteExt(root, rel)
 		metaPath := pdfPath + ".note-meta"
-		if err := local.MkdirAll(ctx, filepath.Dir(pdfPath), 0o755); err != nil {
-			return err
-		}
 		if pdfCurrent(ctx, local, path, pdfPath, metaPath) {
 			tctx.Stats.Inc(stats.ConvertSkipped, 1)
 			return nil

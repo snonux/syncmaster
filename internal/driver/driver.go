@@ -47,18 +47,19 @@ type MountFS interface {
 // registry drivers classify files with. main constructs both so the
 // orchestrator depends on injected abstractions, not package-level globals.
 type Env struct {
-	Config  *config.Config  // runtime config
-	Source  copier.Source   // remote tree (GVFS)
-	Mounts  MountFS         // device discovery
-	Local   fs.Store        // local filesystem (dest side, meta, rollback)
-	Clock   clock.Clock     // deterministic time
-	Runner  shell.Runner    // external commands (gio/exiftool/supernote-tool)
-	Stats   *stats.Counters // shared, concurrency-safe
-	Out     io.Writer       // progress log
-	Err     io.Writer       // error log
-	Drivers *Registry       // driver registry (dispatch); required for Run
-	Media   *media.Registry // file-class registry; drivers fall back to Default() if nil
-	DryRun  bool            // true = plan only, mutate nothing (default); false = execute
+	Config         *config.Config  // runtime config
+	Source         copier.Source   // remote tree (GVFS)
+	Mounts         MountFS         // device discovery
+	Local          fs.Store        // local filesystem (dest side, meta, rollback)
+	Clock          clock.Clock     // deterministic time
+	Runner         shell.Runner    // external commands (gio/exiftool/supernote-tool)
+	TransferRunner shell.Runner    // long-running transfers (rsync); falls back to Runner when nil
+	Stats          *stats.Counters // shared, concurrency-safe
+	Out            io.Writer       // progress log
+	Err            io.Writer       // error log
+	Drivers        *Registry       // driver registry (dispatch); required for Run
+	Media          *media.Registry // file-class registry; drivers fall back to Default() if nil
+	DryRun         bool            // true = plan only, mutate nothing (default); false = execute
 }
 
 // Plugin discovers devices and syncs from one. Implement this + Register to

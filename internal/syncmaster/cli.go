@@ -98,18 +98,19 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		}}
 	}
 	env := &driver.Env{
-		Config:  &cfg,
-		Source:  gio,
-		Mounts:  gio,
-		Local:   local,
-		Clock:   clock.Real{},
-		Runner:  shell.Exec{Timeout: cfg.IOTimeout},
-		Stats:   st,
-		Out:     stdout,
-		Err:     stderr,
-		Drivers: reg,
-		Media:   mreg,
-		DryRun:  !cfg.Run,
+		Config:         &cfg,
+		Source:         gio,
+		Mounts:         gio,
+		Local:          local,
+		Clock:          clock.Real{},
+		Runner:         shell.Exec{Timeout: cfg.IOTimeout},
+		TransferRunner: shell.Exec{},
+		Stats:          st,
+		Out:            stdout,
+		Err:            stderr,
+		Drivers:        reg,
+		Media:          mreg,
+		DryRun:         !cfg.Run,
 	}
 	app := &App{Env: env}
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -90,6 +91,29 @@ func TestDetectReturnsAuthorizedDevices(t *testing.T) {
 	}
 	if devs[0].Source != srcDir {
 		t.Fatalf("Source = %q, want %q", devs[0].Source, srcDir)
+	}
+}
+
+func TestDetectIgnoresADBDeviceWithoutConfiguredSource(t *testing.T) {
+	f := shell.NewFake()
+	f.Register("adb", func(_ context.Context, args []string) ([]byte, error) {
+		if len(args) >= 2 && args[0] == "devices" {
+			return []byte("List of devices attached\nSUPERNOTE device model:Supernote_Nomad\n"), nil
+		}
+		if len(args) >= 5 && args[0] == "-s" && args[1] == "SUPERNOTE" && args[2] == "shell" && args[3] == "test" {
+			return nil, &exec.ExitError{}
+		}
+		return nil, fmt.Errorf("unexpected adb args: %v", args)
+	})
+	cfg := config.Defaults("/home/u", 1000)
+	env := &driver.Env{Config: &cfg, Runner: f}
+
+	devs, err := (Driver{}).Detect(context.Background(), env)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(devs) != 0 {
+		t.Fatalf("device without %s should not be detected as Android sync source, got %v", srcDir, devs)
 	}
 }
 

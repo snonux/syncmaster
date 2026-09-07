@@ -1,5 +1,5 @@
 // Package shell is the seam over external command execution. Every shell-out
-// (gio, exiftool, supernote-tool, go) goes through Runner, so packages are
+// (gio, exiftool, supernote-tool, rsync, go) goes through Runner, so packages are
 // unit-testable without those binaries installed.
 package shell
 
@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"sync"
 	"time"
@@ -17,6 +18,13 @@ import (
 type Runner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
 	LookPath(name string) (string, error)
+}
+
+// StreamingRunner runs a command with output forwarded as it is produced.
+// Long-running commands use this optional extension when live progress is
+// more useful than captured output.
+type StreamingRunner interface {
+	RunStreaming(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) error
 }
 
 // Exec is the production Runner backed by os/exec. Timeout, when > 0, bounds
@@ -31,6 +39,7 @@ type Exec struct {
 }
 
 var _ Runner = (*Exec)(nil)
+var _ StreamingRunner = (*Exec)(nil)
 
 // Run executes name with args, capturing stdout. A non-zero exit is reported
 // as an *exec.ExitError. On context cancellation the process is killed
@@ -57,6 +66,27 @@ func (e Exec) Run(ctx context.Context, name string, args ...string) ([]byte, err
 		return out, fmt.Errorf("command %q exceeded its deadline: %w", name, context.DeadlineExceeded)
 	}
 	return out, err
+}
+
+// RunStreaming executes name while forwarding stdout and stderr immediately.
+func (e Exec) RunStreaming(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) error {
+	if e.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.Timeout)
+		defer cancel()
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		if e.Timeout > 0 {
+			return fmt.Errorf("command %q timed out after %s: %w", name, e.Timeout, context.DeadlineExceeded)
+		}
+		return fmt.Errorf("command %q exceeded its deadline: %w", name, context.DeadlineExceeded)
+	}
+	return err
 }
 
 // LookPath reports whether name is available on PATH.

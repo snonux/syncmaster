@@ -98,16 +98,29 @@ func Default() *Registry {
 	return defaultReg
 }
 
-// RegisterDefaults registers the built-in media classes on r:
-// "raw", "image", "video", "fujifilm-media", "fujifilm-image".
+// RegisterDefaults registers the built-in media classes on r: "raw",
+// "image", "video", and the per-camera-driver composites "fujifilm-media",
+// "fujifilm-image", "ricoh-media", "ricoh-image".
 func RegisterDefaults(r *Registry) {
 	r.RegisterClass("raw", rawExts...)
 	r.RegisterClass("image", imageExts...)
 	r.RegisterClass("video", videoExts...)
-	// fujifilm-media = raw ∪ image ∪ video
-	media := append(append([]string{}, rawExts...), append(imageExts, videoExts...)...)
-	r.RegisterClass("fujifilm-media", media...)
-	// fujifilm-image = raw ∪ image
-	fimg := append(append([]string{}, rawExts...), imageExts...)
-	r.RegisterClass("fujifilm-image", fimg...)
+	// Camera drivers share the same per-group extension set (Fuji RAF, RICOH
+	// DNG, … are all covered by rawExts): media = raw ∪ image ∪ video drives
+	// copy routing; image = raw ∪ image drives geotagging.
+	camMedia := concat(rawExts, imageExts, videoExts)
+	camImage := concat(rawExts, imageExts)
+	for _, brand := range []string{"fujifilm", "ricoh"} {
+		r.RegisterClass(brand+"-media", camMedia...)
+		r.RegisterClass(brand+"-image", camImage...)
+	}
+}
+
+// concat flattens extension lists into one slice.
+func concat(exts ...[]string) []string {
+	var out []string
+	for _, e := range exts {
+		out = append(out, e...)
+	}
+	return out
 }

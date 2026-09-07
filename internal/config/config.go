@@ -32,6 +32,8 @@ type Config struct {
 	GVFSRoot            string
 	FujifilmDest        string
 	FujifilmRAWDest     string
+	RicohDest           string
+	RicohRAWDest        string
 	GPXDir              string
 	SupernoteDest       string
 	AndroidSource       string
@@ -54,6 +56,12 @@ func FromEnv(getenv func(string) string, home string, uid int) Config {
 	}
 	if v := getenv("FUJIFILM_RAW_DEST"); v != "" {
 		c.FujifilmRAWDest = v
+	}
+	if v := getenv("RICOH_DEST"); v != "" {
+		c.RicohDest = v
+	}
+	if v := getenv("RICOH_RAW_DEST"); v != "" {
+		c.RicohRAWDest = v
 	}
 	if v := getenv("GPX_DIR"); v != "" {
 		c.GPXDir = v
@@ -111,6 +119,8 @@ func Defaults(home string, uid int) Config {
 		GVFSRoot:           fmt.Sprintf("/run/user/%d/gvfs", uid),
 		FujifilmDest:       filepath.Join(home, "Pictures", "Fujifilm.Inbox"),
 		FujifilmRAWDest:    filepath.Join(home, "Pictures", "Fujifilm.RAW"),
+		RicohDest:          filepath.Join(home, "Pictures", "Ricoh.Inbox"),
+		RicohRAWDest:       filepath.Join(home, "Pictures", "Ricoh.RAW"),
 		GPXDir:             filepath.Join(home, "Documents", "GPX"),
 		SupernoteDest:      filepath.Join(home, "Documents", "Inbox", "Supernote"),
 		AndroidSource:      "/sdcard/Notes/Vault/Quicklog",
@@ -155,6 +165,15 @@ func (c Config) FujifilmJPEGDest() string {
 		return c.DestOverride
 	}
 	return c.FujifilmDest
+}
+
+// RicohJPEGDest returns the effective RICOH JPEG/video destination, honoring
+// an override.
+func (c Config) RicohJPEGDest() string {
+	if c.DestOverride != "" {
+		return c.DestOverride
+	}
+	return c.RicohDest
 }
 
 // SupernoteDestEffective returns the effective Supernote destination, honoring

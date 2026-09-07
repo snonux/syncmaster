@@ -1,18 +1,20 @@
 # syncmaster
 
 Import files from supported USB devices mounted through GVFS — Fujifilm
-cameras and Supernote Nomad — with geotagging and `.note`→PDF conversion.
+cameras, RICOH GR cameras, and Supernote Nomad — with geotagging and
+`.note`→PDF conversion.
 
 A Go port of the original `~/scripts/usbimport` bash script, built on a
 pluggable driver architecture so new sync sources can be added by writing one
 package and registering it in a single place.
 
-**Status**: v0.4.0 — dry run by default; pass `--run` (or `SYNCMASTER_RUN=1`) to execute.
+**Status**: v0.5.1 — dry run by default; pass `--run` (or `SYNCMASTER_RUN=1`) to execute.
 
 ## Prerequisites
 
 - Go 1.26+
 - `gio` (gvfs package) — for discovering mounted USB devices
+- `rsync` — for backing up Supernote files
 - `exiftool` — for geotagging images (optional, skipped if missing)
 - `supernote-tool` — for `.note`→PDF conversion (only for Supernote sync)
 
@@ -44,7 +46,8 @@ plan-only.
     syncmaster                        # dry-run plan for auto-detected devices
     syncmaster --run                  # auto-detect and import connected devices
     syncmaster --run fujifilm ~/Photos # import Fujifilm photos to ~/Photos
-    syncmaster --run supernote        # import Supernote notes to default dest
+    syncmaster --run ricoh ~/Photos    # import RICOH GR photos to ~/Photos
+    syncmaster --run supernote        # back up Supernote data
     syncmaster --run --allow-missing-gps  # execute even when geotag finds no GPS match
     SYNCMASTER_RUN=1 syncmaster auto  # same as --run, for env-based automation
 
@@ -63,10 +66,16 @@ plan-only.
 | `SYNCMASTER_RUN`      | Non-empty except `0`/`false` = execute; unset/`0`/`false` = dry run | unset (dry run) |
 | `FUJIFILM_DEST`       | JPEG/video destination         | `~/Pictures/Fujifilm.Inbox`      |
 | `FUJIFILM_RAW_DEST`   | RAW file destination           | `~/Pictures/Fujifilm.RAW`        |
+| `RICOH_DEST`          | JPEG/video destination         | `~/Pictures/Ricoh.Inbox`         |
+| `RICOH_RAW_DEST`      | RAW file destination           | `~/Pictures/Ricoh.RAW`           |
 | `GPX_DIR`             | GPX tracks for geotagging      | `~/Documents/GPX`                |
 | `SUPERNOTE_DEST`      | Supernote import destination   | `~/Documents/Inbox/Supernote`    |
 | `CONVERT_PARALLELISM` | Parallel note conversions      | `3`                              |
 | `GVFS_ROOT`           | GVFS mount root                | `/run/user/<uid>/gvfs`           |
+
+Supernote sync uses rsync to back up the device's `Note` and `Document` folders
+without deleting local backup files. Nothing is uploaded to the Supernote. A
+normal dry run only reports the backup changes.
 
 ## Architecture (pluggable drivers)
 
@@ -91,6 +100,7 @@ internal/gpx/                     Geotag Transform (exiftool + GPX)
 internal/note/                    note→PDF Convert Transform (supernote-tool)
 internal/fssync/                  Linux sync(2) flush
 internal/fujifilm/                Fujifilm driver (compose copier + gpx.Geotag)
+internal/ricoh/                   RICOH GR driver (compose copier + gpx.Geotag)
 internal/supernote/               Supernote driver (compose copier + note.Convert)
 internal/syncmaster/              orchestrator: dispatch, auto-detect, summary
 docs/plan.md                      full design + implementation plan

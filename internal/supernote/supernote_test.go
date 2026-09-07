@@ -5,42 +5,28 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/snonux/syncmaster/internal/clock"
 	"github.com/snonux/syncmaster/internal/config"
-	"github.com/snonux/syncmaster/internal/copier"
 	"github.com/snonux/syncmaster/internal/driver"
 	"github.com/snonux/syncmaster/internal/fs"
-	"github.com/snonux/syncmaster/internal/note"
 	"github.com/snonux/syncmaster/internal/shell"
 	"github.com/snonux/syncmaster/internal/stats"
 )
 
 type fakeTree struct {
-	dirs      map[string][]copier.Entry
-	files     map[string][]byte
 	mounts    []string
 	exists    map[string]bool
 	existsErr map[string]error
 }
 
 func newFakeTree() *fakeTree {
-	return &fakeTree{dirs: map[string][]copier.Entry{}, files: map[string][]byte{}, exists: map[string]bool{}, existsErr: map[string]error{}}
+	return &fakeTree{exists: map[string]bool{}, existsErr: map[string]error{}}
 }
 
-func (t *fakeTree) addDir(dir, name string) {
-	t.dirs[dir] = append(t.dirs[dir], copier.Entry{Name: name, IsDir: true})
-	t.dirs[filepath.Join(dir, name)] = nil
-}
-func (t *fakeTree) addFile(dir, name string, content []byte) {
-	t.dirs[dir] = append(t.dirs[dir], copier.Entry{Name: name, Size: int64(len(content)), Modified: time.Unix(1000, 0)})
-	t.files[filepath.Join(dir, name)] = content
-}
-
-func (t *fakeTree) List(context.Context, string) ([]copier.Entry, error) { return nil, nil }
-func (t *fakeTree) Copy(context.Context, string, string) error           { return nil }
 func (t *fakeTree) FindMounts(context.Context, string) ([]string, error) { return t.mounts, nil }
 func (t *fakeTree) Exists(_ context.Context, path string) (bool, error) {
 	if err, ok := t.existsErr[path]; ok {
@@ -51,27 +37,15 @@ func (t *fakeTree) Exists(_ context.Context, path string) (bool, error) {
 func (t *fakeTree) ModifiedTime(context.Context, string) (time.Time, error) {
 	return time.Unix(1000, 0), nil
 }
-
-// writingSource lists from the tree and writes copies into a local fs.
-type writingSource struct {
-	*fakeTree
-	local fs.Store
-}
-
-func (w writingSource) List(_ context.Context, dir string) ([]copier.Entry, error) {
-	return w.dirs[dir], nil
-}
-func (w writingSource) Copy(ctx context.Context, src, dst string) error {
-	return w.local.WriteFile(ctx, dst, w.files[src], 0o644)
-}
-
 func newEnv(t *testing.T, cfg config.Config, st *stats.Counters) *driver.Env {
 	t.Helper()
+	runner := shell.NewFake()
+	runner.Register("rsync", func(context.Context, []string) ([]byte, error) { return nil, nil })
 	return &driver.Env{
 		Config: &cfg,
 		Local:  fs.NewMem(),
 		Clock:  clock.Fixed{T: time.Unix(1000, 0)},
-		Runner: shell.NewFake(),
+		Runner: runner,
 		Stats:  st,
 		Out:    new(bytes.Buffer),
 		Err:    new(bytes.Buffer),
@@ -127,6 +101,45 @@ func TestDetectSurfacesMountError(t *testing.T) {
 	}
 }
 
+func TestInboundRsyncArguments(t *testing.T) {
+	env := newEnv(t, baseCfg(), stats.New())
+	env.DryRun = true
+	d := Driver{}
+	if err := d.rsyncTree(context.Background(), "/device/Note", "/backup/Note", env); err != nil {
+		t.Fatalf("note rsync: %v", err)
+	}
+	if err := d.rsyncTree(context.Background(), "/device/Document", "/backup/KOReader", env); err != nil {
+		t.Fatalf("document rsync: %v", err)
+	}
+	calls := env.Runner.(*shell.Fake).CallsFor("rsync")
+	want := [][]string{
+		{"--recursive", "--mkpath", "--size-only", "--itemize-changes", "--dry-run", "--", "/device/Note/", "/backup/Note/"},
+		{"--recursive", "--mkpath", "--size-only", "--itemize-changes", "--dry-run", "--", "/device/Document/", "/backup/KOReader/"},
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("rsync calls = %d, want %d", len(calls), len(want))
+	}
+	for i := range want {
+		if !reflect.DeepEqual(calls[i].Args, want[i]) {
+			t.Fatalf("rsync call %d args = %q, want %q", i, calls[i].Args, want[i])
+		}
+	}
+}
+
+func TestRsyncTreeSurfacesError(t *testing.T) {
+	env := newEnv(t, baseCfg(), stats.New())
+	fake := env.Runner.(*shell.Fake)
+	fake.Register("rsync", func(context.Context, []string) ([]byte, error) {
+		return []byte("rsync output\n"), errors.New("transfer failed")
+	})
+	if err := (Driver{}).rsyncTree(context.Background(), "/device/Note", "/backup/Note", env); err == nil {
+		t.Fatal("expected rsync error")
+	}
+	if got := env.Out.(*bytes.Buffer).String(); got != "rsync output\n" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
 func TestSyncSurfacesNoteExistsError(t *testing.T) {
 	tree := newFakeTree()
 	storage := "/dev/Supernote/Internal shared storage"
@@ -156,16 +169,9 @@ func TestSyncCopiesNoteAndDocumentAndConverts(t *testing.T) {
 	tree.exists[filepath.Join(storage, "Note")] = true
 	tree.exists[filepath.Join(storage, "Document")] = true
 
-	tree.addDir(filepath.Join(storage, "Note"), "Inbox")
-	tree.addFile(filepath.Join(storage, "Note"), "a.note", []byte("note"))
-	tree.addFile(filepath.Join(storage, "Note", "Inbox"), "b.note", []byte("note2"))
-	tree.addDir(filepath.Join(storage, "Document"), "Books")
-	tree.addFile(filepath.Join(storage, "Document"), "book.epub", []byte("epub"))
-
 	st := stats.New()
 	cfg := baseCfg()
 	env := newEnv(t, cfg, st)
-	env.Source = writingSource{tree, env.Local}
 	env.Mounts = tree
 
 	// Provide a fake converter via a transform swap: we drive conversion by
@@ -177,6 +183,20 @@ func TestSyncCopiesNoteAndDocumentAndConverts(t *testing.T) {
 	// the runner writing a pdf.
 	fake := shell.NewFake()
 	fake.RegisterLookPath("supernote-tool", true)
+	fake.Register("rsync", func(ctx context.Context, args []string) ([]byte, error) {
+		source, destination := args[len(args)-2], args[len(args)-1]
+		switch source {
+		case filepath.Join(storage, "Note") + "/":
+			_ = env.Local.MkdirAll(ctx, destination, 0o755)
+			_ = env.Local.MkdirAll(ctx, filepath.Join(destination, "Inbox"), 0o755)
+			_ = env.Local.WriteFile(ctx, filepath.Join(destination, "a.note"), []byte("note"), 0o644)
+			_ = env.Local.WriteFile(ctx, filepath.Join(destination, "Inbox", "b.note"), []byte("note2"), 0o644)
+		case filepath.Join(storage, "Document") + "/":
+			_ = env.Local.MkdirAll(ctx, destination, 0o755)
+			_ = env.Local.WriteFile(ctx, filepath.Join(destination, "book.epub"), []byte("epub"), 0o644)
+		}
+		return nil, nil
+	})
 	fake.Register("supernote-tool", func(_ context.Context, args []string) ([]byte, error) {
 		// args: convert -a -t pdf <note> <out>
 		out := args[len(args)-1]
@@ -222,44 +242,3 @@ func TestSyncMissingNoteFolderErrors(t *testing.T) {
 		t.Fatal("expected error for missing Note folder")
 	}
 }
-
-func TestSyncSkipsUnchangedFiles(t *testing.T) {
-	tree := newFakeTree()
-	storage := "/dev/Supernote/Internal shared storage"
-	tree.exists[filepath.Join(storage, "Note")] = true
-	tree.addFile(filepath.Join(storage, "Note"), "a.note", []byte("note"))
-
-	st := stats.New()
-	cfg := baseCfg()
-
-	// Pre-create the destination file matching size+mtime so it's skipped.
-	local := fs.NewMem()
-	mt := time.Unix(1000, 0)
-	dest := filepath.Join(cfg.SupernoteDestEffective(), "a.note")
-	_ = local.MkdirAll(context.Background(), filepath.Dir(dest), 0o755)
-	local.WriteFileAt(dest, []byte("note"), mt)
-	env := newEnv(t, cfg, st)
-	env.Local = local
-	env.Source = writingSource{tree, local}
-	env.Mounts = tree
-
-	// No supernote-tool needed: the note is skipped from copy, and conversion
-	// has no .note to convert? The note exists and will be considered for
-	// conversion. Register a no-op tool so LookPath passes.
-	fake := shell.NewFake()
-	fake.RegisterLookPath("supernote-tool", true)
-	env.Runner = fake
-
-	if err := (Driver{}).Sync(context.Background(), driver.Device{Source: storage}, env); err != nil {
-		t.Fatalf("Sync: %v", err)
-	}
-	if g := st.Get(stats.Skipped); g != 1 {
-		t.Fatalf("Skipped = %d, want 1", g)
-	}
-	if g := st.Get(stats.Copied); g != 0 {
-		t.Fatalf("Copied = %d, want 0", g)
-	}
-}
-
-// Ensure the note import is referenced (avoids unused import in some builds).
-var _ = note.Convert{}

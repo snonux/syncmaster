@@ -28,9 +28,9 @@ func (Driver) Description() string {
 	return "Sync a folder from an Android phone over adb."
 }
 
-// Detect lists connected, authorized Android devices. It returns no devices
-// (not an error) when AndroidSource is unset, so the driver is inert until
-// configured.
+// Detect lists connected, authorized Android devices that contain the
+// configured source folder. It returns no devices (not an error) when
+// AndroidSource is unset, so the driver is inert until configured.
 func (Driver) Detect(ctx context.Context, env *driver.Env) ([]driver.Device, error) {
 	src := env.Config.AndroidSource
 	if src == "" {
@@ -42,6 +42,13 @@ func (Driver) Detect(ctx context.Context, env *driver.Env) ([]driver.Device, err
 	}
 	devs := make([]driver.Device, 0, len(serials))
 	for _, s := range serials {
+		ok, err := (adb.Client{Runner: env.Runner, Serial: s}).Exists(ctx, src)
+		if err != nil {
+			return nil, fmt.Errorf("android: check source on %s: %w", s, err)
+		}
+		if !ok {
+			continue
+		}
 		devs = append(devs, driver.Device{
 			Driver: "android",
 			Label:  "Android (" + s + ")",

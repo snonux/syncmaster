@@ -17,6 +17,12 @@ func TestDefaults(t *testing.T) {
 	if c.FujifilmDest != "/home/p/Pictures/Fujifilm.Inbox" {
 		t.Fatalf("FujifilmDest = %q", c.FujifilmDest)
 	}
+	if c.RicohDest != "/home/p/Pictures/Ricoh.Inbox" {
+		t.Fatalf("RicohDest = %q", c.RicohDest)
+	}
+	if c.RicohRAWDest != "/home/p/Pictures/Ricoh.RAW" {
+		t.Fatalf("RicohRAWDest = %q", c.RicohRAWDest)
+	}
 	if c.ConvertParallelism != 3 {
 		t.Fatalf("parallelism = %d", c.ConvertParallelism)
 	}
@@ -30,11 +36,16 @@ func TestFromEnvOverrides(t *testing.T) {
 		"GVFS_ROOT":           "/custom/gvfs",
 		"FUJIFILM_DEST":       "/pic",
 		"FUJIFILM_RAW_DEST":   "/raw",
+		"RICOH_DEST":          "/ricoh",
+		"RICOH_RAW_DEST":      "/ricoh-raw",
 		"GPX_DIR":             "/gpx",
 		"SUPERNOTE_DEST":      "/sn",
 		"CONVERT_PARALLELISM": "5",
 	}), "/h", 1)
 	if c.GVFSRoot != "/custom/gvfs" || c.FujifilmDest != "/pic" || c.FujifilmRAWDest != "/raw" {
+		t.Fatalf("cfg = %+v", c)
+	}
+	if c.RicohDest != "/ricoh" || c.RicohRAWDest != "/ricoh-raw" {
 		t.Fatalf("cfg = %+v", c)
 	}
 	if c.GPXDir != "/gpx" || c.SupernoteDest != "/sn" || c.ConvertParallelism != 5 {
@@ -139,6 +150,9 @@ func TestDestOverrides(t *testing.T) {
 	if c.FujifilmJPEGDest() != "/override" {
 		t.Fatalf("jpeg dest = %q", c.FujifilmJPEGDest())
 	}
+	if c.RicohJPEGDest() != "/override" {
+		t.Fatalf("ricoh jpeg dest = %q", c.RicohJPEGDest())
+	}
 	if c.SupernoteDestEffective() != "/override" {
 		t.Fatalf("sn dest = %q", c.SupernoteDestEffective())
 	}
@@ -148,6 +162,9 @@ func TestDestOverrides(t *testing.T) {
 	c.DestOverride = ""
 	if c.FujifilmJPEGDest() != c.FujifilmDest {
 		t.Fatalf("jpeg dest should fall back")
+	}
+	if c.RicohJPEGDest() != c.RicohDest {
+		t.Fatalf("ricoh jpeg dest should fall back")
 	}
 	if c.AndroidDestEffective() != c.AndroidDest {
 		t.Fatalf("android dest should fall back")

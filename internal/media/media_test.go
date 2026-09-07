@@ -42,8 +42,8 @@ func TestClasses(t *testing.T) {
 	RegisterDefaults(r)
 	got := r.Classes("IMG.RAF")
 	sort.Strings(got)
-	// RAF is in raw, fujifilm-media, fujifilm-image
-	want := []string{"fujifilm-image", "fujifilm-media", "raw"}
+	// RAF is in raw, fujifilm-media, fujifilm-image, ricoh-media, ricoh-image
+	want := []string{"fujifilm-image", "fujifilm-media", "raw", "ricoh-image", "ricoh-media"}
 	if len(got) != len(want) {
 		t.Fatalf("classes = %v, want %v", got, want)
 	}
@@ -76,6 +76,16 @@ func TestRegisterDefaultsCompositeClasses(t *testing.T) {
 		{"fujifilm-image", "a.raf", true},
 		{"fujifilm-image", "a.mov", false}, // video is not an image
 		{"fujifilm-image", "a.avi", false},
+		// The ricoh classes share the same per-group extension set as the
+		// fujifilm ones (RICOH RAW is DNG, already in the raw class).
+		{"ricoh-media", "a.jpg", true},
+		{"ricoh-media", "a.mov", true},
+		{"ricoh-media", "a.dng", true},
+		{"ricoh-media", "a.raf", true},
+		{"ricoh-media", "a.txt", false},
+		{"ricoh-image", "a.jpg", true},
+		{"ricoh-image", "a.dng", true},
+		{"ricoh-image", "a.mov", false}, // video is not an image
 	}
 	for _, tc := range tests {
 		t.Run(tc.class+"/"+tc.file, func(t *testing.T) {
@@ -89,5 +99,11 @@ func TestRegisterDefaultsCompositeClasses(t *testing.T) {
 func TestDefaultIsPopulated(t *testing.T) {
 	if !Default().IsA("fujifilm-image", "DSC0001.RAF") {
 		t.Fatal("Default should know fujifilm-image/RAF")
+	}
+	if !Default().IsA("ricoh-image", "R0000001.DNG") {
+		t.Fatal("Default should know ricoh-image/DNG")
+	}
+	if !Default().IsA("ricoh-media", "R0000028.MOV") {
+		t.Fatal("Default should know ricoh-media/MOV")
 	}
 }
