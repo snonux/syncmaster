@@ -8,7 +8,7 @@ A Go port of the original `~/scripts/usbimport` bash script, built on a
 pluggable driver architecture so new sync sources can be added by writing one
 package and registering it in a single place.
 
-**Status**: v0.5.1 — dry run by default; pass `--run` (or `SYNCMASTER_RUN=1`) to execute.
+**Status**: v0.6.1 — dry run by default; pass `--run` (or `SYNCMASTER_RUN=1`) to execute.
 
 ## Prerequisites
 
