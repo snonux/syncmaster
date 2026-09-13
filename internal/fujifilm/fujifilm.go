@@ -1,6 +1,7 @@
 // Package fujifilm implements the Fujifilm camera sync driver: it copies
-// JPEG/video and RAW files from a GVFS gphoto2 mount into separate
-// destinations, then geotags imported images via the gpx Transform.
+// JPEG/video and RAW files from a GVFS gphoto2 mount into separate flat
+// destinations (no DCIM/xxx camera sub-dirs), then geotags imported images
+// via the gpx Transform.
 package fujifilm
 
 import (
@@ -68,11 +69,15 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	rawDest := cfg.FujifilmRAWDest
 	reg := d.registry(env)
 
-	if err := env.Local.MkdirAll(ctx, jpegDest, 0o755); err != nil {
-		return fmt.Errorf("fujifilm: mkdir %s: %w", jpegDest, err)
-	}
-	if err := env.Local.MkdirAll(ctx, rawDest, 0o755); err != nil {
-		return fmt.Errorf("fujifilm: mkdir %s: %w", rawDest, err)
+	// A dry run must mutate nothing, so the destination roots are created only
+	// for real runs.
+	if !env.DryRun {
+		if err := env.Local.MkdirAll(ctx, jpegDest, 0o755); err != nil {
+			return fmt.Errorf("fujifilm: mkdir %s: %w", jpegDest, err)
+		}
+		if err := env.Local.MkdirAll(ctx, rawDest, 0o755); err != nil {
+			return fmt.Errorf("fujifilm: mkdir %s: %w", rawDest, err)
+		}
 	}
 
 	_, _ = fmt.Fprintf(env.Out, "Device: Fujifilm camera\nSource: %s\nJPEG/video destination: %s\nRAW destination: %s\n",
@@ -82,6 +87,11 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	onCopied := func(p string, e copier.Entry) {
 		if reg.IsA("fujifilm-image", e.Name) {
 			imported = append(imported, p)
+			// Dry run must mutate nothing (plan only), so no sidecar is
+			// written; `imported` still feeds the gpx dry-run plan line.
+			if env.DryRun {
+				return
+			}
 			// Record the original source size so a later run can dedup despite
 			// the in-place geotag rewrite (gpx.Geotag runs exiftool
 			// -overwrite_original -P on every imported image/RAW), which drifts
@@ -97,13 +107,15 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 
 	// Single pass over the camera tree: route each file to its destination root
 	// (RAW -> rawDest, JPEG/video -> jpegDest) via the resolver, halving the
-	// gphoto2 list round-trips the previous two-pass walk made.
+	// gphoto2 list round-trips the previous two-pass walk made. Files are
+	// flattened into the destination root (base name only), so camera
+	// sub-dirs like DCIM/109_FUJI are not mirrored into the inbox.
 	resolve := func(e copier.Entry) (string, string, bool) {
 		if reg.IsA("raw", e.Name) {
-			return rawDest, e.RelPath, true
+			return rawDest, e.Name, true
 		}
 		if reg.IsA("fujifilm-media", e.Name) { // raw already routed above
-			return jpegDest, e.RelPath, true
+			return jpegDest, e.Name, true
 		}
 		return "", "", false
 	}

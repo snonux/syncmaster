@@ -90,8 +90,13 @@ func (c *Tree) CopyTree(ctx context.Context, srcDir, dstRoot string) error {
 	if c.Stats == nil {
 		return fmt.Errorf("copier: nil Stats")
 	}
-	if err := c.Local.MkdirAll(ctx, dstRoot, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dstRoot, err)
+	// A dry run must not mutate the local fs, so the root is created only for
+	// real runs; copied files create their parent dirs on demand (copyOne) and
+	// mirrored sub-dirs create their parents via their own MkdirAll.
+	if !c.DryRun {
+		if err := c.Local.MkdirAll(ctx, dstRoot, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dstRoot, err)
+		}
 	}
 	return c.copyDir(ctx, srcDir, "", dstRoot)
 }

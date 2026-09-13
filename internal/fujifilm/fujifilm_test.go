@@ -111,9 +111,11 @@ func TestDetect(t *testing.T) {
 func TestSyncRoutesFiles(t *testing.T) {
 	tree := newFakeTree()
 	tree.addDir("/src", "DCIM")
-	tree.addFile("/src", "DSC0001.RAF", []byte("raw"))
-	tree.addFile("/src", "DSC0002.JPG", []byte("jpg"))
-	tree.addFile("/src", "clip.MOV", []byte("mov"))
+	tree.addDir("/src/DCIM", "109_FUJI")
+	shotDir := "/src/DCIM/109_FUJI"
+	tree.addFile(shotDir, "DSC0001.RAF", []byte("raw"))
+	tree.addFile(shotDir, "DSC0002.JPG", []byte("jpg"))
+	tree.addFile(shotDir, "clip.MOV", []byte("mov"))
 	tree.addFile("/src", "readme.txt", []byte("ignore"))
 	tree.mounts = []string{"/src"}
 	tree.exists = nil
@@ -128,7 +130,8 @@ func TestSyncRoutesFiles(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	// RAW -> rawDest; JPEG/video -> jpegDest; txt excluded.
+	// RAW -> rawDest; JPEG/video -> jpegDest; txt excluded. Files are
+	// flattened into the destination roots: no DCIM/109_FUJI sub-dirs.
 	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF")); err != nil {
 		t.Fatalf("RAW not copied: %v", err)
 	}
@@ -137,6 +140,9 @@ func TestSyncRoutesFiles(t *testing.T) {
 	}
 	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "clip.MOV")); err != nil {
 		t.Fatalf("MOV not copied: %v", err)
+	}
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "DCIM")); err == nil {
+		t.Fatal("DCIM sub-dir must not be mirrored into the destination")
 	}
 	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "readme.txt")); err == nil {
 		t.Fatal("readme.txt should be excluded")
@@ -303,6 +309,44 @@ func TestSyncGeotagFailureRollsBack(t *testing.T) {
 	// Rollback removes the copied image.
 	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "DSC0001.JPG")); err == nil {
 		t.Fatal("JPG should have been rolled back")
+	}
+}
+
+func TestSyncDryRunCopiesNothing(t *testing.T) {
+	tree := newFakeTree()
+	tree.addFile("/src", "DSC0002.JPG", []byte("jpg"))
+	tree.addFile("/src", "DSC0001.RAF", []byte("raw"))
+
+	st := stats.New()
+	cfg := baseCfg()
+	env := newEnv(t, nil, tree, st, cfg)
+	env.Source = writingSource{tree, env.Local}
+	env.DryRun = true
+
+	d := &Driver{Media: media.Default()}
+	if err := d.Sync(context.Background(), driver.Device{Source: "/src"}, env); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "DSC0002.JPG")); err == nil {
+		t.Fatal("JPG should not exist after a dry run")
+	}
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmRAWDest, "DSC0001.RAF")); err == nil {
+		t.Fatal("RAF should not exist after a dry run")
+	}
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.FujifilmJPEGDest(), "DSC0002.JPG"+copier.ImportMetaSuffix)); err == nil {
+		t.Fatal("import-meta sidecar should not be written during a dry run")
+	}
+	if _, err := env.Local.Stat(context.Background(), cfg.FujifilmJPEGDest()); err == nil {
+		t.Fatal("destination root should not be created during a dry run")
+	}
+	if _, err := env.Local.Stat(context.Background(), cfg.FujifilmRAWDest); err == nil {
+		t.Fatal("RAW destination root should not be created during a dry run")
+	}
+	if g := st.Get(stats.Found); g != 2 {
+		t.Fatalf("Found = %d, want 2 (plan still counts)", g)
+	}
+	if g := st.Get(stats.Copied); g != 0 {
+		t.Fatalf("Copied = %d, want 0", g)
 	}
 }
 

@@ -352,6 +352,9 @@ func TestCopyTreeDryRun(t *testing.T) {
 			t.Fatalf("%s should not exist (dry run did not copy)", p)
 		}
 	}
+	if _, err := local.Stat(context.Background(), "/dst"); err == nil {
+		t.Fatalf("/dst should not exist (dry run must not create the destination root)")
+	}
 	// OnCopied fired for the plan, and the log shows "would copy".
 	if copied != 3 {
 		t.Fatalf("OnCopied fired %d times, want 3 (plan)", copied)

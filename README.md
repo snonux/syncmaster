@@ -77,6 +77,17 @@ Supernote sync uses rsync to back up the device's `Note` and `Document` folders
 without deleting local backup files. Nothing is uploaded to the Supernote. A
 normal dry run only reports the backup changes.
 
+Camera sync (Fujifilm, RICOH) imports media **flat** into the destination
+roots — the camera's `DCIM/xxx` sub-dirs are not mirrored, so files land
+directly as `~/Pictures/Fujifilm.Inbox/DSC_xxxx.jpg` (RAW to
+`~/Pictures/Fujifilm.RAW/`). Imported images are geotagged from the GPX
+tracks in `GPX_DIR` when a GPS match exists. Camera basenames are assumed
+unique (cameras number files globally across card sub-dirs); on a collision
+a same-size file is silently skipped and a different-size one silently
+overwrites the existing import. The first run
+after switching to flat import re-imports previously nested files into the
+flat roots; the old `DCIM/xxx` trees are left in place for manual cleanup.
+
 ## Architecture (pluggable drivers)
 
 The orchestrator knows only the `Driver` interface and a registry; it knows

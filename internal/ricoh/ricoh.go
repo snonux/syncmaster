@@ -1,6 +1,7 @@
 // Package ricoh implements the RICOH GR camera sync driver: it copies
-// JPEG/video and RAW files from a GVFS MTP mount into separate
-// destinations, then geotags imported images via the gpx Transform.
+// JPEG/video and RAW files from a GVFS MTP mount into separate flat
+// destinations (no DCIM/xxx camera sub-dirs), then geotags imported images
+// via the gpx Transform.
 //
 // Unlike the Fujifilm driver, the GR series mounts as MTP (e.g.
 // "mtp:host=RICOH_IMAGING_COMPANY__LTD._RICOH_GR_IV_0024081"), not gphoto2.
@@ -73,11 +74,15 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	rawDest := cfg.RicohRAWDest
 	reg := d.registry(env)
 
-	if err := env.Local.MkdirAll(ctx, jpegDest, 0o755); err != nil {
-		return fmt.Errorf("ricoh: mkdir %s: %w", jpegDest, err)
-	}
-	if err := env.Local.MkdirAll(ctx, rawDest, 0o755); err != nil {
-		return fmt.Errorf("ricoh: mkdir %s: %w", rawDest, err)
+	// A dry run must mutate nothing, so the destination roots are created only
+	// for real runs.
+	if !env.DryRun {
+		if err := env.Local.MkdirAll(ctx, jpegDest, 0o755); err != nil {
+			return fmt.Errorf("ricoh: mkdir %s: %w", jpegDest, err)
+		}
+		if err := env.Local.MkdirAll(ctx, rawDest, 0o755); err != nil {
+			return fmt.Errorf("ricoh: mkdir %s: %w", rawDest, err)
+		}
 	}
 
 	_, _ = fmt.Fprintf(env.Out, "Device: RICOH GR camera\nSource: %s\nJPEG/video destination: %s\nRAW destination: %s\n",
@@ -87,6 +92,11 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 	onCopied := func(p string, e copier.Entry) {
 		if reg.IsA("ricoh-image", e.Name) {
 			imported = append(imported, p)
+			// Dry run must mutate nothing (plan only), so no sidecar is
+			// written; `imported` still feeds the gpx dry-run plan line.
+			if env.DryRun {
+				return
+			}
 			// Record the original source size so a later run can dedup despite
 			// the in-place geotag rewrite (gpx.Geotag runs exiftool
 			// -overwrite_original -P on every imported image/RAW), which drifts
@@ -102,13 +112,15 @@ func (d *Driver) Sync(ctx context.Context, dev driver.Device, env *driver.Env) e
 
 	// Single pass over the camera tree: route each file to its destination root
 	// (RAW -> rawDest, JPEG/video -> jpegDest) via the resolver, halving the
-	// MTP list round-trips a two-pass walk would make.
+	// MTP list round-trips a two-pass walk would make. Files are flattened
+	// into the destination root (base name only), so camera sub-dirs like
+	// "Internal Memory/DCIM/100RICOH" are not mirrored into the inbox.
 	resolve := func(e copier.Entry) (string, string, bool) {
 		if reg.IsA("raw", e.Name) {
-			return rawDest, e.RelPath, true
+			return rawDest, e.Name, true
 		}
 		if reg.IsA("ricoh-media", e.Name) { // raw already routed above
-			return jpegDest, e.RelPath, true
+			return jpegDest, e.Name, true
 		}
 		return "", "", false
 	}

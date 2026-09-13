@@ -146,17 +146,20 @@ func TestSyncRoutesFiles(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	// DNG -> rawDest; JPEG/video -> jpegDest; txt excluded. The full source
-	// relative path is preserved under each destination root.
-	rel := "Internal Memory/DCIM/100RICOH"
-	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohRAWDest, rel, "R0000099.DNG")); err != nil {
+	// DNG -> rawDest; JPEG/video -> jpegDest; txt excluded. Files are
+	// flattened into the destination roots: no "Internal Memory/DCIM/100RICOH"
+	// sub-dirs.
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohRAWDest, "R0000099.DNG")); err != nil {
 		t.Fatalf("RAW not copied: %v", err)
 	}
-	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohJPEGDest(), rel, "R0000001.JPG")); err != nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohJPEGDest(), "R0000001.JPG")); err != nil {
 		t.Fatalf("JPG not copied: %v", err)
 	}
-	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohJPEGDest(), rel, "R0000028.MOV")); err != nil {
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohJPEGDest(), "R0000028.MOV")); err != nil {
 		t.Fatalf("MOV not copied: %v", err)
+	}
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohJPEGDest(), "Internal Memory")); err == nil {
+		t.Fatal("camera sub-dirs must not be mirrored into the destination")
 	}
 	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohJPEGDest(), "readme.txt")); err == nil {
 		t.Fatal("readme.txt should be excluded")
@@ -317,6 +320,15 @@ func TestSyncDryRunCopiesNothing(t *testing.T) {
 	}
 	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohRAWDest, "R0000099.DNG")); err == nil {
 		t.Fatal("DNG should not exist after a dry run")
+	}
+	if _, err := env.Local.Stat(context.Background(), filepath.Join(cfg.RicohJPEGDest(), "R0000001.JPG"+copier.ImportMetaSuffix)); err == nil {
+		t.Fatal("import-meta sidecar should not be written during a dry run")
+	}
+	if _, err := env.Local.Stat(context.Background(), cfg.RicohJPEGDest()); err == nil {
+		t.Fatal("destination root should not be created during a dry run")
+	}
+	if _, err := env.Local.Stat(context.Background(), cfg.RicohRAWDest); err == nil {
+		t.Fatal("RAW destination root should not be created during a dry run")
 	}
 	if g := st.Get(stats.Found); g != 2 {
 		t.Fatalf("Found = %d, want 2 (plan still counts)", g)
